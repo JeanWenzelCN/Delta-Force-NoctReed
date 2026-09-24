@@ -4,8 +4,11 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -13,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -25,11 +29,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.reedkit.delta.data.CalibrationStore
-import com.reedkit.delta.data.Keys
+import com.reedkit.delta.data.ScoreStore
 import com.reedkit.delta.score.ScoreParser
 import com.reedkit.delta.service.HarmonicaAccessibilityService
 import com.reedkit.delta.service.OverlayController
 import com.reedkit.delta.service.OverlayService
+import com.reedkit.delta.service.PlayState
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -64,12 +69,37 @@ fun MainScreen() {
     val store = remember { CalibrationStore(context) }
     var calibrated by remember { mutableStateOf(store.allCalibrated()) }
 
+    val scoreStore = remember { ScoreStore(context) }
+    var savedScores by remember { mutableStateOf(scoreStore.list()) }
+
     var scoreText by remember { mutableStateOf(ScoreParser.SAMPLE) }
     var bpmText by remember { mutableStateOf("90") }
-    val isPlaying by OverlayController.isPlaying.collectAsState()
+    val playState by OverlayController.playState.collectAsState()
+    val playing = playState != PlayState.IDLE
+
+    // txt 导入（SAF）
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri ?: return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                input.bufferedReader().readText()
+            }
+        }.onSuccess { text ->
+            if (!text.isNullOrBlank()) {
+                scoreText = text.trim()
+                OverlayController.updateScore(scoreText)
+                Toast.makeText(context, "乐谱已导入", Toast.LENGTH_SHORT).show()
+            }
+        }.onFailure {
+            Toast.makeText(context, "导入失败：${it.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     // 回到前台时刷新权限状态
     LaunchedEffect(Unit) {
+        OverlayController.updateScore(scoreText)
         while (true) {
             accessibilityOn = HarmonicaAccessibilityService.isEnabled()
             overlayOn = Settings.canDrawOverlays(context)
@@ -114,7 +144,7 @@ fun MainScreen() {
             step = "第 2 步",
             title = "允许悬浮窗",
             done = overlayOn,
-            description = "悬浮窗用于在游戏内控制开始 / 停止，并执行按键校准。"
+            description = "悬浮窗用于在游戏内控制开始 / 暂停 / 停止，并执行按键校准。"
         ) {
             Button(onClick = {
                 context.startActivity(
@@ -124,21 +154,24 @@ fun MainScreen() {
             }) { Text("去授权") }
         }
 
-        // —— 第三步：校准 ——
+        // —— 第三步：校准（引导式，不再点击即开始）——
         GuideCard(
             step = "第 3 步",
             title = "按键校准",
             done = calibrated,
-            description = "打开游戏口琴界面后启动校准，按提示依次点击 8 个音符键（1–i）与 4 个调性键（半音/升调/自然音/降调），系统会自动记录坐标。"
+            description = "先启动悬浮窗，然后进入游戏打开口琴界面，在悬浮窗上点「校准」按钮，按提示依次点击 8 个音符键（1–i）与 4 个调性键。可随时重新校准。"
         ) {
             Button(
                 enabled = overlayOn,
                 onClick = {
                     OverlayService.start(context)
-                    val i = Intent(context, OverlayService::class.java).setAction("calibrate")
-                    context.startForegroundService(i)
+                    Toast.makeText(
+                        context,
+                        "悬浮窗已启动，请进入游戏后点悬浮窗上的「校准」",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
-            ) { Text("开始校准") }
+            ) { Text(if (calibrated) "重新校准" else "启动校准引导") }
         }
 
         // —— 乐谱与演奏 ——
@@ -172,21 +205,74 @@ fun MainScreen() {
                     label = { Text("BPM（30–300）") },
                     singleLine = true
                 )
+
+                // txt 导入 + 保存
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(onClick = {
+                        importLauncher.launch(arrayOf("text/plain"))
+                    }) { Text("导入 txt") }
+                    OutlinedButton(
+                        enabled = scoreText.isNotBlank(),
+                        onClick = {
+                            val name = "乐谱 ${savedScores.size + 1}"
+                            scoreStore.save(name, scoreText, bpmText.toIntOrNull() ?: 90)
+                            savedScores = scoreStore.list()
+                            Toast.makeText(context, "已保存为「$name」", Toast.LENGTH_SHORT).show()
+                        }
+                    ) { Text("保存乐谱") }
+                }
+
+                // 已保存乐谱列表
+                if (savedScores.isNotEmpty()) {
+                    var expanded by remember { mutableStateOf(false) }
+                    Box {
+                        OutlinedButton(onClick = { expanded = true }) {
+                            Text("我的乐谱（${savedScores.size}）")
+                            Icon(Icons.Default.KeyboardArrowDown, contentDescription = null)
+                        }
+                        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                            savedScores.forEach { s ->
+                                DropdownMenuItem(
+                                    text = { Text("${s.name} · ${s.bpm} BPM") },
+                                    onClick = {
+                                        scoreText = s.text
+                                        bpmText = s.bpm.toString()
+                                        OverlayController.updateScore(s.text)
+                                        OverlayController.updateBpm(s.bpm)
+                                        expanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 演奏控制
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(
-                        enabled = accessibilityOn && calibrated && scoreText.isNotBlank(),
+                        enabled = accessibilityOn && calibrated && scoreText.isNotBlank() && !playing,
                         onClick = {
                             OverlayController.updateScore(scoreText)
-                            OverlayController.toggle(context)
+                            OverlayController.start(context)
                         }
-                    ) {
-                        Text(if (isPlaying) "停止" else "开始演奏")
-                    }
+                    ) { Text("开始") }
                     OutlinedButton(
-                        enabled = overlayOn,
-                        onClick = { OverlayService.start(context) }
-                    ) { Text("显示悬浮窗") }
+                        enabled = playing,
+                        onClick = {
+                            if (playState == PlayState.PLAYING) OverlayController.pause()
+                            else OverlayController.resume()
+                        }
+                    ) { Text(if (playState == PlayState.PAUSED) "继续" else "暂停") }
+                    OutlinedButton(
+                        enabled = playing,
+                        onClick = { OverlayController.stop() }
+                    ) { Text("停止") }
                 }
+
+                OutlinedButton(
+                    enabled = overlayOn,
+                    onClick = { OverlayService.start(context) }
+                ) { Text("显示悬浮窗") }
             }
         }
 
@@ -197,8 +283,8 @@ fun MainScreen() {
                     tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    "使用流程：开启无障碍 → 授权悬浮窗 → 在游戏中打开口琴 → 回到本应用启动校准 " +
-                        "→ 粘贴乐谱并设置 BPM → 点击开始，或切回游戏用悬浮窗控制。\n\n" +
+                    "使用流程：开启无障碍 → 授权悬浮窗 → 启动悬浮窗后进入游戏打开口琴 → " +
+                        "在悬浮窗上完成校准 → 切回游戏，用悬浮窗的开始 / 暂停 / 停止控制演奏。\n\n" +
                         "演奏时先切换音区（互斥），再切换半音（独立开关），已在目标状态时自动跳过，最后点击音符键。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant

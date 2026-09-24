@@ -7,17 +7,20 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
 import android.os.IBinder
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
-import android.view.inputmethod.InputMethodManager
-import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.content.ContextCompat
+import androidx.core.view.setMargins
+import androidx.core.view.setPadding
 import com.reedkit.delta.MainActivity
 import com.reedkit.delta.R
 import com.reedkit.delta.data.CalibrationStore
@@ -29,7 +32,17 @@ class OverlayService : Service() {
     private var panel: View? = null
     private var calibrating = false
     private var calibIndex = 0
+    private var collapsed = false
     private lateinit var store: CalibrationStore
+
+    private lateinit var title: TextView
+    private lateinit var status: TextView
+    private lateinit var btnPlay: ImageButton
+    private lateinit var btnPause: ImageButton
+    private lateinit var btnStop: ImageButton
+    private lateinit var btnCalibrate: ImageButton
+    private lateinit var btnCollapse: ImageButton
+    private lateinit var expandedContent: LinearLayout
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -42,16 +55,16 @@ class OverlayService : Service() {
     }
 
     private fun buildNotification(): Notification {
-        val channel = NotificationChannel("overlay", "悬浮窗服务", NotificationManager.IMPORTANCE_LOW)
+        val channel = NotificationChannel(CHANNEL_ID, "悬浮窗服务", NotificationManager.IMPORTANCE_LOW)
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         val pi = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE
         )
-        return Notification.Builder(this, "overlay")
+        return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("Reedkit 正在运行")
             .setContentText("点击返回应用")
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setSmallIcon(R.drawable.ic_play)
             .setContentIntent(pi)
             .build()
     }
@@ -69,57 +82,109 @@ class OverlayService : Service() {
         y = 300
     }
 
+    /** 可复用的圆角按钮构造 */
+    private fun makeButton(iconRes: Int, desc: String, onClick: () -> Unit): ImageButton {
+        return ImageButton(this).apply {
+            setImageResource(iconRes)
+            contentDescription = desc
+            background = GradientDrawable().apply {
+                cornerRadius = 20f * resources.displayMetrics.density
+                setColor(BTN_BG)
+            }
+            imageTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+            val size = (40 * resources.displayMetrics.density).toInt()
+            layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                setMargins(6.dpToPx(), 0, 6.dpToPx(), 0)
+            }
+            setOnClickListener { onClick() }
+        }
+    }
+
+    private fun Int.dpToPx(): Int = (this * resources.displayMetrics.density).toInt()
+
     private fun showPanel() {
         val params = lp()
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xEE202124.toInt())
-            setPadding(32, 24, 32, 24)
-        }
-        val title = TextView(this).apply {
-            setTextColor(0xFFE3E3E3.toInt())
-            textSize = 14f
-        }
-        val btnPlay = ImageButton(this).apply {
-            setImageResource(android.R.drawable.ic_media_play)
-            setBackgroundColor(0xFF3D5AFE.toInt())
-        }
-        container.addView(title)
-        container.addView(btnPlay)
 
-        fun refresh() {
-            title.text = when {
-                calibrating -> {
-                    val key = Keys.ALL.getOrNull(calibIndex)
-                    if (key == null) "校准完成"
-                    else "请点击「$key」(${calibIndex + 1}/${Keys.ALL.size})"
-                }
-                OverlayController.isPlaying.value -> "演奏中… 点击停止"
-                else -> "就绪 — 点击开始演奏"
+        // 根容器：圆角卡片样式
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = 16f * resources.displayMetrics.density
+                setColor(PANEL_BG)
+            }
+            setPadding(14.dpToPx(), 12.dpToPx(), 14.dpToPx(), 12.dpToPx())
+        }
+
+        // 标题栏：Reedkit + 收起按钮
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        title = TextView(this).apply {
+            text = "Reedkit"
+            setTextColor(TEXT_PRIMARY)
+            textSize = 15f
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        btnCollapse = makeButton(R.drawable.ic_collapse, "收起") { toggleCollapse() }
+        btnCollapse.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        header.addView(title)
+        header.addView(btnCollapse)
+        root.addView(header)
+
+        // 展开内容
+        expandedContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 8.dpToPx(), 0, 0)
+        }
+
+        // 状态文本
+        status = TextView(this).apply {
+            text = "就绪"
+            setTextColor(TEXT_SECONDARY)
+            textSize = 13f
+            setPadding(0, 0, 0, 10.dpToPx())
+        }
+        expandedContent.addView(status)
+
+        // 按钮行：演奏 / 暂停 / 停止 / 校准
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        btnPlay = makeButton(R.drawable.ic_play, "开始演奏") { OverlayController.start(this) }
+        btnPause = makeButton(R.drawable.ic_pause, "暂停 / 恢复") {
+            when (OverlayController.playState.value) {
+                PlayState.PLAYING -> OverlayController.pause()
+                PlayState.PAUSED -> OverlayController.resume()
+                else -> {}
             }
         }
-        refresh()
+        btnStop = makeButton(R.drawable.ic_stop, "停止演奏") { OverlayController.stop() }
+        btnCalibrate = makeButton(R.drawable.ic_tune, "校准按键") { startCalibration() }
+        btnRow.addView(btnPlay)
+        btnRow.addView(btnPause)
+        btnRow.addView(btnStop)
+        btnRow.addView(btnCalibrate)
+        expandedContent.addView(btnRow)
+        root.addView(expandedContent)
 
-        btnPlay.setOnClickListener {
-            if (calibrating) return@setOnClickListener
-            OverlayController.toggle(this)
-            refresh()
-        }
-
-        // 拖动 + 校准触摸
+        // 拖动支持
         var downX = 0f; var downY = 0f; var moved = false
-        container.setOnTouchListener { _, ev ->
+        root.setOnTouchListener { _, ev ->
             when (ev.action) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = ev.rawX; downY = ev.rawY; moved = false; true
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = ev.rawX - downX; val dy = ev.rawY - downY
-                    if (kotlin.math.abs(dx) > 10 || kotlin.math.abs(dy) > 10) {
+                    if (kotlin.math.abs(dx) > 12 || kotlin.math.abs(dy) > 12) {
                         moved = true
                         params.x += dx.toInt(); params.y += dy.toInt()
                         downX = ev.rawX; downY = ev.rawY
-                        wm.updateViewLayout(container, params)
+                        wm.updateViewLayout(root, params)
                     }
                     true
                 }
@@ -128,15 +193,50 @@ class OverlayService : Service() {
             }
         }
 
-        panel = container
-        wm.addView(container, params)
-        panelRefresher = { refresh() }
+        panel = root
+        wm.addView(root, params)
+        refreshPanel()
     }
 
-    /** 启动校准模式：全屏透明层捕获点击 */
+    private fun toggleCollapse() {
+        collapsed = !collapsed
+        expandedContent.visibility = if (collapsed) View.GONE else View.VISIBLE
+    }
+
+    /** 刷新悬浮窗显示（供外部调用） */
+    fun refreshPanel() {
+        val calibKey = if (calibrating) Keys.ALL.getOrNull(calibIndex) else null
+        when {
+            calibrating && calibKey != null -> {
+                status.text = "校准中：请点击「$calibKey」(${calibIndex + 1}/${Keys.ALL.size})"
+                btnCalibrate.setColorFilter(ACCENT)
+            }
+            calibrating && calibKey == null -> {
+                status.text = "校准完成，共 ${Keys.ALL.size} 个键位"
+                btnCalibrate.clearColorFilter()
+            }
+            else -> {
+                status.text = when (OverlayController.playState.value) {
+                    PlayState.PLAYING -> "演奏中…"
+                    PlayState.PAUSED -> "已暂停"
+                    PlayState.IDLE -> if (store.allCalibrated()) "就绪 — 可开始演奏" else "未校准，请先校准按键"
+                }
+                btnCalibrate.clearColorFilter()
+            }
+        }
+        // 演奏/暂停按钮可用性
+        val playing = OverlayController.playState.value == PlayState.PLAYING
+        btnPlay.alpha = if (playing) 0.4f else 1f
+        btnPause.alpha = if (playing || OverlayController.playState.value == PlayState.PAUSED) 1f else 0.4f
+        btnStop.alpha = if (playing || OverlayController.playState.value == PlayState.PAUSED) 1f else 0.4f
+    }
+
+    /** 启动校准模式：全屏透明层捕获点击，悬浮窗同步提示 */
     fun startCalibration() {
+        if (calibrating) return
         calibrating = true
         calibIndex = 0
+        refreshPanel()
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -152,18 +252,17 @@ class OverlayService : Service() {
                 if (key != null) {
                     store.save(key, ev.rawX, ev.rawY)
                     calibIndex++
-                    panelRefresher?.invoke()
+                    refreshPanel()
                     if (calibIndex >= Keys.ALL.size) {
                         calibrating = false
                         wm.removeView(layer)
-                        panelRefresher?.invoke()
+                        refreshPanel()
                     }
                 }
                 true
             } else false
         }
         wm.addView(layer, params)
-        panelRefresher?.invoke()
     }
 
     override fun onDestroy() {
@@ -171,9 +270,25 @@ class OverlayService : Service() {
         super.onDestroy()
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        instance = this
+        if (intent?.action == ACTION_REFRESH) refreshPanel()
+        return START_STICKY
+    }
+
     companion object {
-        var panelRefresher: (() -> Unit)? = null
+        private const val CHANNEL_ID = "overlay"
+        private const val ACTION_REFRESH = "com.reedkit.delta.action.REFRESH"
+
+        // 配色：Material 3 深色主题感，不用系统 emoji 图标
+        private const val PANEL_BG = 0xE61E1F22.toInt()
+        private const val BTN_BG = 0xFF3B3F47.toInt()
+        private const val TEXT_PRIMARY = 0xFFE3E3E6.toInt()
+        private const val TEXT_SECONDARY = 0xFFB8BCC2.toInt()
+        private const val ACCENT = 0xFF7C9EFF.toInt()
+
         var instance: OverlayService? = null
+            private set
 
         fun start(ctx: Context) {
             ctx.startForegroundService(Intent(ctx, OverlayService::class.java))
@@ -182,11 +297,10 @@ class OverlayService : Service() {
         fun stop(ctx: Context) {
             ctx.stopService(Intent(ctx, OverlayService::class.java))
         }
-    }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        instance = this
-        if (intent?.action == "calibrate") startCalibration()
-        return START_STICKY
+        fun refresh(ctx: Context) {
+            val i = Intent(ctx, OverlayService::class.java).setAction(ACTION_REFRESH)
+            ctx.startForegroundService(i)
+        }
     }
 }

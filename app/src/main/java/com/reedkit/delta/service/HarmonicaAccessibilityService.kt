@@ -23,6 +23,10 @@ class HarmonicaAccessibilityService : AccessibilityService() {
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var playJob: kotlinx.coroutines.Job? = null
 
+    @Volatile
+    private var paused = false
+    private val pauseLock = Object()
+
     override fun onServiceConnected() {
         instance = this
         store = CalibrationStore(this)
@@ -64,14 +68,16 @@ class HarmonicaAccessibilityService : AccessibilityService() {
         if (events.isEmpty()) return
         val beatMs = (60000L / bpm).coerceAtLeast(100L)
         val switchGap = 120L // 状态切换与音符之间的间隔
+        paused = false
 
         playJob = scope.launch {
             var register = Register.NATURAL
             var halfStep = false
 
             for (event in events) {
+                awaitIfPaused()
                 when (event) {
-                    is ScoreEvent.Rest -> delay(beatMs * event.beats)
+                    is ScoreEvent.Rest -> delayInterruptibly(beatMs * event.beats)
                     is ScoreEvent.Note -> {
                         // 维度一：音区（互斥），已在目标状态则跳过
                         if (event.register != register) {
@@ -93,7 +99,7 @@ class HarmonicaAccessibilityService : AccessibilityService() {
                         // 音符键
                         val noteKey = if (event.degree == 8) "i" else event.degree.toString()
                         doTapKey(noteKey)
-                        delay(beatMs * event.beats)
+                        delayInterruptibly(beatMs * event.beats)
                     }
                 }
             }
@@ -101,12 +107,40 @@ class HarmonicaAccessibilityService : AccessibilityService() {
         }
     }
 
+    /** 暂停时挂起等待，恢复后继续 */
+    private suspend fun awaitIfPaused() {
+        while (paused) {
+            kotlinx.coroutines.delay(100)
+        }
+    }
+
+    /** 可被暂停感知的 delay：分段等待，暂停时暂停计时 */
+    private suspend fun delayInterruptibly(ms: Long) {
+        var remaining = ms
+        val step = 50L
+        while (remaining > 0) {
+            awaitIfPaused()
+            val d = minOf(step, remaining)
+            kotlinx.coroutines.delay(d)
+            remaining -= d
+        }
+    }
+
+    fun pausePlaying() {
+        if (playJob?.isActive == true) paused = true
+    }
+
+    fun resumePlaying() {
+        paused = false
+    }
+
     fun stopPlaying() {
         playJob?.cancel()
         playJob = null
+        paused = false
     }
 
-    fun isPlaying() = playJob?.isActive == true
+    fun isPlaying() = playJob?.isActive == true && !paused
 
     companion object {
         var instance: HarmonicaAccessibilityService? = null
