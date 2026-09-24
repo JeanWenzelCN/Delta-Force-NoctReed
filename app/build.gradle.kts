@@ -19,11 +19,13 @@ android {
     signingConfigs {
         create("release") {
             val ksFile = System.getenv("REEDKIT_KEYSTORE")?.let { file(it) }
-            if (ksFile != null && ksFile.exists()) {
+            if (ksFile != null && ksFile.exists() && ksFile.length() > 0) {
                 storeFile = ksFile
                 storePassword = System.getenv("REEDKIT_STORE_PASSWORD")
                 keyAlias = System.getenv("REEDKIT_KEY_ALIAS")
                 keyPassword = System.getenv("REEDKIT_KEY_PASSWORD")
+            } else {
+                logger.warn("Reedkit: release keystore not found at ${'$'}ksFile - release APK will be unsigned")
             }
         }
     }
@@ -31,7 +33,10 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.findByName("release")
+            val releaseSigning = signingConfigs.findByName("release")
+            if (releaseSigning?.storeFile != null) {
+                signingConfig = releaseSigning
+            }
         }
     }
 
