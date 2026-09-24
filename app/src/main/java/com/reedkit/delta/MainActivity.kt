@@ -184,8 +184,8 @@ fun MainScreen() {
                     Text("乐谱演奏", style = MaterialTheme.typography.titleMedium)
                 }
                 Text(
-                    "简谱格式：1 2 3 … i；# 表示半音，^ 升调，, 降调；- 延长一拍，0 休止；" +
-                        "支持「自然音:…; 升调:…」状态段。",
+                    "标准简谱文本，可直接粘贴现成乐谱：1 2 3 … 7，高音加点 1.，低音加点 .1；" +
+                        "#4 升半音，b7 降半音；- 延长一拍，0 休止，小节线 | 自动忽略。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
