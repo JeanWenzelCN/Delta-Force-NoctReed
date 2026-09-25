@@ -24,7 +24,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import cc.eu.jeanwenzel.Noctreed.data.CalibrationStore
 import cc.eu.jeanwenzel.Noctreed.data.ScoreStore
@@ -261,8 +263,32 @@ fun MainScreen() {
                     onClick = { showLibrary = true },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(if (scoreName.isNotBlank()) "$scoreName（${savedScores.size}）"
-                        else "我的乐谱（${savedScores.size}）")
+                    Icon(
+                        painterResource(R.drawable.ic_library),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = if (scoreName.isNotBlank()) scoreName else "我的乐谱",
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (savedScores.isNotEmpty()) {
+                        Text(
+                            text = "${savedScores.size} 首",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.width(4.dp))
+                    }
+                    Icon(
+                        painterResource(R.drawable.ic_expand),
+                        contentDescription = "展开乐谱库",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
 
                 // 演奏控制

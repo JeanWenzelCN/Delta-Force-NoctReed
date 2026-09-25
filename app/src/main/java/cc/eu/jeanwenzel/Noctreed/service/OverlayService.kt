@@ -113,9 +113,12 @@ class OverlayService : Service() {
                 setColor(BTN_BG)
             }
             imageTintList = android.content.res.ColorStateList.valueOf(0xFF1F1F1F.toInt())
-            val size = (40 * resources.displayMetrics.density).toInt()
+            val size = (36 * resources.displayMetrics.density).toInt()
+            scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
+            val pad = (6 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, pad)
             layoutParams = LinearLayout.LayoutParams(size, size).apply {
-                setMargins(6.dpToPx(), 0, 6.dpToPx(), 0)
+                setMargins(3.dpToPx(), 0, 3.dpToPx(), 0)
             }
             setOnClickListener { onClick() }
         }
@@ -151,7 +154,10 @@ class OverlayService : Service() {
             setTextColor(TEXT_SECONDARY)
             textSize = 12f
             gravity = Gravity.CENTER
-            setPadding(10.dpToPx(), 0, 10.dpToPx(), 0)
+            setPadding(6.dpToPx(), 0, 6.dpToPx(), 0)
+            maxWidth = 110.dpToPx()
+            setSingleLine()
+            ellipsize = android.text.TextUtils.TruncateAt.END
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         btnMinimize = makeButton(R.drawable.ic_minimize, "最小化") { toggleCollapse() }
@@ -178,8 +184,12 @@ class OverlayService : Service() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, 6.dpToPx(), 0, 0)
         }
-        // 按钮区在竖屏下单独占一行横向排布
-        val buttonRow = if (isPortrait) LinearLayout(this).apply {
+        // 按钮区在竖屏下拆为两行：BPM 调速一行、播放控制一行，避免横排溢出屏幕
+        val bpmRow = if (isPortrait) LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        } else expandedContent
+        val ctrlRow = if (isPortrait) LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         } else expandedContent
@@ -217,9 +227,9 @@ class OverlayService : Service() {
         btnBpmUp = makeButton(R.drawable.ic_add, "加速") {
             OverlayController.updateBpm(OverlayController.bpm.value + 5)
         }
-        buttonRow.addView(btnBpmDown)
-        buttonRow.addView(bpmView)
-        buttonRow.addView(btnBpmUp)
+        bpmRow.addView(btnBpmDown)
+        bpmRow.addView(bpmView)
+        bpmRow.addView(btnBpmUp)
         // 播放控制按钮：开始 / 暂停 / 停止 / 乐谱库 / 校准
         btnPlay = makeButton(R.drawable.ic_play, "开始演奏") { OverlayController.start(this) }
         btnPause = makeButton(R.drawable.ic_pause, "暂停 / 恢复") {
@@ -232,12 +242,15 @@ class OverlayService : Service() {
         btnStop = makeButton(R.drawable.ic_stop, "停止演奏") { OverlayController.stop() }
         btnLibrary = makeButton(R.drawable.ic_library, "切换乐谱") { showScorePicker() }
         btnCalibrate = makeButton(R.drawable.ic_tune, "校准按键") { startCalibration() }
-        buttonRow.addView(btnPlay)
-        buttonRow.addView(btnPause)
-        buttonRow.addView(btnStop)
-        buttonRow.addView(btnLibrary)
-        buttonRow.addView(btnCalibrate)
-        if (isPortrait) expandedContent.addView(buttonRow)
+        ctrlRow.addView(btnPlay)
+        ctrlRow.addView(btnPause)
+        ctrlRow.addView(btnStop)
+        ctrlRow.addView(btnLibrary)
+        ctrlRow.addView(btnCalibrate)
+        if (isPortrait) {
+            expandedContent.addView(bpmRow)
+            expandedContent.addView(ctrlRow)
+        }
         root.addView(expandedContent)
 
         // 拖动支持
