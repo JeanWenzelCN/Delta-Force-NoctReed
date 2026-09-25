@@ -112,10 +112,7 @@ object ScoreParser {
             else -> s.toIntOrNull()
         } ?: return // 无法识别，静默跳过
         if (degree !in 1..8) return
-
-        // 8/i 必在高音区
-        val finalRegister = if (degree == 8) Register.SHARP else register
-        events.add(ScoreEvent.Note(degree, finalRegister, halfStep, 1 + extra, phrase))
+        events.add(ScoreEvent.Note(degree, register, halfStep, 1 + extra, phrase))
     }
 
     private fun extendLast(events: MutableList<ScoreEvent>, extra: Int, phrase: Int) {
