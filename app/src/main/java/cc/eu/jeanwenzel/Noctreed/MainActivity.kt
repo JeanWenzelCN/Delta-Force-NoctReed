@@ -16,7 +16,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -24,6 +23,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -75,6 +75,8 @@ fun MainScreen() {
 
     var scoreText by remember { mutableStateOf(ScoreParser.SAMPLE) }
     var bpmText by remember { mutableStateOf("90") }
+    // 编辑 BPM 时不允许轮询回写（否则输入 "1" 会被 coerceIn(30,300) 后强制改成 "30"）
+    var bpmEditing by remember { mutableStateOf(false) }
     val playState by OverlayController.playState.collectAsState()
     val playing = playState != PlayState.IDLE
 
@@ -130,7 +132,7 @@ fun MainScreen() {
             val ctrlScore = OverlayController.score.value
             if (ctrlScore != scoreText) scoreText = ctrlScore
             val ctrlBpm = OverlayController.bpm.value
-            if (ctrlBpm.toString() != bpmText) bpmText = ctrlBpm.toString()
+            if (!bpmEditing && ctrlBpm.toString() != bpmText) bpmText = ctrlBpm.toString()
             val ctrlName = OverlayController.scoreName.value
             if (ctrlName != scoreName) scoreName = ctrlName
             kotlinx.coroutines.delay(1000)
@@ -161,7 +163,7 @@ fun MainScreen() {
             step = "第 1 步",
             title = "开启无障碍服务",
             done = accessibilityOn,
-            description = "用于模拟手势点击游戏按键（canPerformGestures）。点击按钮跳转系统设置，找到「Noctreed」并开启。"
+            description = "在系统设置中找到「Noctreed」并开启。"
         ) {
             Button(onClick = {
                 context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -173,7 +175,7 @@ fun MainScreen() {
             step = "第 2 步",
             title = "允许悬浮窗",
             done = overlayOn,
-            description = "悬浮窗用于在游戏内控制开始 / 暂停 / 停止，并执行按键校准。"
+            description = "允许在游戏上层显示控制面板。"
         ) {
             Button(onClick = {
                 context.startActivity(
@@ -188,7 +190,7 @@ fun MainScreen() {
             step = "第 3 步",
             title = "按键校准",
             done = calibrated,
-            description = "先启动悬浮窗，然后进入游戏打开口琴界面，在悬浮窗上点「校准」按钮，按提示依次点击 8 个音符键（1–i）与 4 个调性键。可随时重新校准。"
+            description = "启动悬浮窗后进入游戏口琴界面，点悬浮窗「校准」并按提示点击按键。可随时重新校准。"
         ) {
             Button(
                 enabled = overlayOn,
@@ -213,8 +215,7 @@ fun MainScreen() {
                     Text("乐谱演奏", style = MaterialTheme.typography.titleMedium)
                 }
                 Text(
-                    "标准简谱文本，可直接粘贴现成乐谱：1 2 3 … 7，高音加点 1.，低音加点 .1；" +
-                        "#4 升半音，b7 降半音；- 延长一拍，0 休止，小节线 | 自动忽略。",
+                    "支持数字简谱（含高低音点、升降号、延音线），可直接粘贴或从乐谱库 / MIDI 导入。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -228,10 +229,18 @@ fun MainScreen() {
                 OutlinedTextField(
                     value = bpmText,
                     onValueChange = {
-                        bpmText = it.filter(Char::isDigit)
-                        bpmText.toIntOrNull()?.let(OverlayController::updateBpm)
+                        bpmText = it.filter(Char::isDigit).take(3)
+                        bpmText.toIntOrNull()?.let { v -> if (v >= 30) OverlayController.updateBpm(v) }
                     },
-                    label = { Text("BPM（30–300）") },
+                    modifier = Modifier.onFocusChanged { f ->
+                        if (f.isFocused) bpmEditing = true
+                        else {
+                            bpmEditing = false
+                            // 失焦时同步一次（钳位后的控制器值为准）
+                            bpmText = OverlayController.bpm.value.toString()
+                        }
+                    },
+                    label = { Text("BPM（30–300，悬浮窗可实时调整）") },
                     singleLine = true
                 )
 
@@ -296,10 +305,8 @@ fun MainScreen() {
                     tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    "使用流程：开启无障碍 → 授权悬浮窗 → 启动悬浮窗后进入游戏打开口琴 → " +
-                        "在悬浮窗上完成校准 → 切回游戏，用悬浮窗的开始 / 暂停 / 停止控制演奏。\n\n" +
-                        "演奏时先切换音区（互斥），再切换半音（独立开关），已在目标状态时自动跳过，最后点击音符键。\n\n" +
-                        "支持导入 MIDI 文件自动转为简谱，要求：单音轨、无和弦（单旋律）、音域在低音 5 ～ 高音 1 之间。",
+                    "流程：开启无障碍 → 授权悬浮窗 → 进入游戏口琴界面 → 在悬浮窗上完成校准 → 用悬浮窗控制演奏。\n\n" +
+                        "MIDI 导入要求：单旋律、无和弦、音域在低音 5 ～ 高音 1 之间。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

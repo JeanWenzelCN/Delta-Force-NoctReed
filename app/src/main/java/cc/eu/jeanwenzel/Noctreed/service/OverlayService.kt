@@ -54,6 +54,9 @@ class OverlayService : Service() {
     private lateinit var btnMinimize: ImageButton
     private lateinit var btnClose: ImageButton
     private lateinit var btnLibrary: ImageButton
+    private lateinit var btnBpmDown: ImageButton
+    private lateinit var btnBpmUp: ImageButton
+    private lateinit var bpmView: TextView
     private lateinit var expandedContent: LinearLayout
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -69,6 +72,7 @@ class OverlayService : Service() {
         serviceScope.launch { OverlayController.playState.collect { refreshPanel() } }
         serviceScope.launch { OverlayController.scoreName.collect { refreshPanel() } }
         serviceScope.launch { OverlayController.phrase.collect { refreshPanel() } }
+        serviceScope.launch { OverlayController.bpm.collect { refreshPanel() } }
     }
 
     private fun buildNotification(): Notification {
@@ -192,6 +196,29 @@ class OverlayService : Service() {
             setPadding(0, 0, 0, 10.dpToPx())
         }
         expandedContent.addView(phraseView)
+
+        // BPM 实时调速行：减号 / 数值 / 加号（演奏中可随时调整）
+        val bpmRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, 8.dpToPx())
+        }
+        btnBpmDown = makeButton(R.drawable.ic_remove, "减速") {
+            OverlayController.updateBpm(OverlayController.bpm.value - 5)
+        }
+        bpmView = TextView(this).apply {
+            setTextColor(TEXT_PRIMARY)
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(8.dpToPx(), 0, 8.dpToPx(), 0)
+        }
+        btnBpmUp = makeButton(R.drawable.ic_add, "加速") {
+            OverlayController.updateBpm(OverlayController.bpm.value + 5)
+        }
+        bpmRow.addView(btnBpmDown)
+        bpmRow.addView(bpmView)
+        bpmRow.addView(btnBpmUp)
+        expandedContent.addView(bpmRow)
 
         // 按钮行：演奏 / 暂停 / 停止 / 校准
         val btnRow = LinearLayout(this).apply {
@@ -330,6 +357,9 @@ class OverlayService : Service() {
 
         // 同步最小化/展开图标，防止状态漂移
         btnMinimize.setImageResource(if (collapsed) R.drawable.ic_expand else R.drawable.ic_minimize)
+
+        // BPM 实时显示
+        bpmView.text = "${OverlayController.bpm.value} BPM"
     }
 
     /** 启动校准模式：全屏透明层捕获点击，悬浮窗同步提示 */

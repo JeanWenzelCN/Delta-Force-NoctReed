@@ -62,7 +62,7 @@ class HarmonicaAccessibilityService : AccessibilityService() {
     }
 
     /** 开始演奏 */
-    fun startPlaying(scoreText: String, bpm: Int) {
+    fun startPlaying(scoreText: String, @Suppress("UNUSED_PARAMETER") bpm: Int) {
         stopPlaying()
         val parsed = ScoreParser.parseWithPhrases(scoreText)
         val events = parsed.events
@@ -70,7 +70,8 @@ class HarmonicaAccessibilityService : AccessibilityService() {
         val phraseCount = parsed.phraseCount
         val phrases = parsed.phrases
         OverlayController.notifyPhrase(if (phraseCount > 0) 1 else 0, phraseCount, phrases.getOrNull(0) ?: "")
-        val beatMs = (60000L / bpm).coerceAtLeast(100L)
+        // 每次取当前 BPM 计算节拍时长，悬浮窗调速可实时生效
+        fun beatMsNow(): Long = (60000L / OverlayController.bpm.value).coerceAtLeast(100L)
         val switchGap = 120L // 状态切换与音符之间的间隔
         paused = false
 
@@ -91,7 +92,7 @@ class HarmonicaAccessibilityService : AccessibilityService() {
                     OverlayController.notifyPhrase(pi + 1, phraseCount, phrases.getOrNull(pi) ?: "")
                 }
                 when (event) {
-                    is ScoreEvent.Rest -> delayInterruptibly(beatMs * event.beats)
+                    is ScoreEvent.Rest -> delayInterruptibly(beatMsNow() * event.beats)
                     is ScoreEvent.Note -> {
                         // 维度一：音区（互斥），已在目标状态则跳过
                         if (event.register != register) {
@@ -113,7 +114,7 @@ class HarmonicaAccessibilityService : AccessibilityService() {
                         // 音符键
                         val noteKey = if (event.degree == 8) "i" else event.degree.toString()
                         doTapKey(noteKey)
-                        delayInterruptibly(beatMs * event.beats)
+                        delayInterruptibly(beatMsNow() * event.beats)
                     }
                 }
             }
