@@ -9,7 +9,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -19,7 +18,6 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
-import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -41,7 +39,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            NoctreedTheme {
+            NoctReedTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -54,11 +52,10 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun NoctreedTheme(content: @Composable () -> Unit) {
+fun NoctReedTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
-    val dark = isSystemInDarkTheme()
-    // Material You 莫奈动态取色（minSdk 31+ 原生支持）
-    val scheme = if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    // 固定浅色 + Material You 莫奈动态取色（minSdk 31+ 原生支持）
+    val scheme = dynamicLightColorScheme(context)
     MaterialTheme(colorScheme = scheme, content = content)
 }
 
@@ -148,12 +145,12 @@ fun MainScreen() {
     ) {
         Spacer(Modifier.height(8.dp))
         Text(
-            "Noctreed",
+            "NoctReed",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold
         )
         Text(
-            "三角洲行动 · 口琴自动演奏",
+            "守夜人口琴 · 自动演奏",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -163,7 +160,7 @@ fun MainScreen() {
             step = "第 1 步",
             title = "开启无障碍服务",
             done = accessibilityOn,
-            description = "在系统设置中找到「Noctreed」并开启。"
+            description = "在系统设置中找到「NoctReed」并开启。"
         ) {
             Button(onClick = {
                 context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -190,7 +187,7 @@ fun MainScreen() {
             step = "第 3 步",
             title = "按键校准",
             done = calibrated,
-            description = "启动悬浮窗后进入游戏口琴界面，点悬浮窗「校准」并按提示点击按键。可随时重新校准。"
+            description = "启动悬浮窗后进入游戏守夜人口琴界面，点悬浮窗「校准」并按提示点击按键。可随时重新校准。"
         ) {
             Button(
                 enabled = overlayOn,
@@ -268,6 +265,17 @@ fun MainScreen() {
                         else "我的乐谱（${savedScores.size}）")
                 }
 
+                // 仓库链接
+                OutlinedButton(
+                    onClick = {
+                        context.startActivity(Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://github.com/JeanWenzelCN/Delta-Force-NoctReed")))
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("GitHub 仓库")
+                }
+
                 // 演奏控制
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(
@@ -305,7 +313,7 @@ fun MainScreen() {
                     tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    "流程：开启无障碍 → 授权悬浮窗 → 进入游戏口琴界面 → 在悬浮窗上完成校准 → 用悬浮窗控制演奏。\n\n" +
+                    "流程：开启无障碍 → 授权悬浮窗 → 进入游戏守夜人口琴界面 → 在悬浮窗上完成校准 → 用悬浮窗控制演奏。\n\n" +
                         "MIDI 导入要求：单旋律、无和弦、音域在低音 5 ～ 高音 1 之间。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant

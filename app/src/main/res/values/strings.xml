@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Noctreed</string>
-    <string name="service_description">用于三角洲行动口琴自动演奏的无障碍服务，通过模拟手势点击游戏内按键。</string>
+    <string name="app_name">NoctReed</string>
+    <string name="service_description">用于守夜人口琴自动演奏的无障碍服务，通过模拟手势点击游戏内按键。</string>
 </resources>

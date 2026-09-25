@@ -83,7 +83,7 @@ class OverlayService : Service() {
             PendingIntent.FLAG_IMMUTABLE
         )
         return Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("Noctreed 正在运行")
+            .setContentTitle("NoctReed 正在运行")
             .setContentText("点击返回应用")
             .setSmallIcon(R.drawable.ic_play)
             .setContentIntent(pi)
@@ -112,7 +112,7 @@ class OverlayService : Service() {
                 cornerRadius = 20f * resources.displayMetrics.density
                 setColor(BTN_BG)
             }
-            imageTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+            imageTintList = android.content.res.ColorStateList.valueOf(0xFF1F1F1F.toInt())
             val size = (40 * resources.displayMetrics.density).toInt()
             layoutParams = LinearLayout.LayoutParams(size, size).apply {
                 setMargins(6.dpToPx(), 0, 6.dpToPx(), 0)
@@ -133,18 +133,25 @@ class OverlayService : Service() {
                 cornerRadius = 16f * resources.displayMetrics.density
                 setColor(PANEL_BG)
             }
-            setPadding(14.dpToPx(), 12.dpToPx(), 14.dpToPx(), 12.dpToPx())
+            setPadding(12.dpToPx(), 8.dpToPx(), 12.dpToPx(), 10.dpToPx())
         }
 
-        // 标题栏：Noctreed + 最小化/关闭按钮（Windows 风格）
+        // 标题栏：NoctReed + 状态文本 + 最小化/关闭按钮（单行）
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
         title = TextView(this).apply {
-            text = "Noctreed"
+            text = "NoctReed"
             setTextColor(TEXT_PRIMARY)
-            textSize = 15f
+            textSize = 14f
+        }
+        status = TextView(this).apply {
+            text = "就绪"
+            setTextColor(TEXT_SECONDARY)
+            textSize = 12f
+            gravity = Gravity.CENTER
+            setPadding(10.dpToPx(), 0, 10.dpToPx(), 0)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         btnMinimize = makeButton(R.drawable.ic_minimize, "最小化") { toggleCollapse() }
@@ -155,76 +162,60 @@ class OverlayService : Service() {
             cornerRadius = 20f * resources.displayMetrics.density
             setColor(DANGER_BG)
         }
+        btnClose.imageTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
         header.addView(title)
+        header.addView(status)
         header.addView(btnMinimize)
         header.addView(btnClose)
         root.addView(header)
 
-        // 展开内容
+        // 展开内容：主控制行（信息区 + BPM + 播放控制按钮）
         expandedContent = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 6.dpToPx(), 0, 0)
+        }
+
+        // 左侧信息列：曲名 + 乐句（演奏时可见）
+        val infoColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, 8.dpToPx(), 0, 0)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            setPadding(0, 0, 8.dpToPx(), 0)
         }
-
-        // 状态文本
-        status = TextView(this).apply {
-            text = "就绪"
-            setTextColor(TEXT_SECONDARY)
-            textSize = 13f
-            setPadding(0, 0, 0, 10.dpToPx())
-        }
-        expandedContent.addView(status)
-
-        // 曲目名（演奏中显示）
         scoreNameView = TextView(this).apply {
             setTextColor(ACCENT)
             textSize = 13f
             setSingleLine()
             ellipsize = android.text.TextUtils.TruncateAt.END
-            maxWidth = 220.dpToPx()
-            setPadding(0, 0, 0, 4.dpToPx())
         }
-        expandedContent.addView(scoreNameView)
-
-        // 正在演奏的乐句（第 x/y 句 + 简谱）
         phraseView = TextView(this).apply {
             setTextColor(TEXT_SECONDARY)
             textSize = 12f
             setSingleLine()
             ellipsize = android.text.TextUtils.TruncateAt.END
-            maxWidth = 220.dpToPx()
-            setPadding(0, 0, 0, 10.dpToPx())
         }
-        expandedContent.addView(phraseView)
+        infoColumn.addView(scoreNameView)
+        infoColumn.addView(phraseView)
+        expandedContent.addView(infoColumn)
 
-        // BPM 实时调速行：减号 / 数值 / 加号（演奏中可随时调整）
-        val bpmRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, 8.dpToPx())
-        }
+        // BPM 实时调速：减号 / 数值 / 加号
         btnBpmDown = makeButton(R.drawable.ic_remove, "减速") {
             OverlayController.updateBpm(OverlayController.bpm.value - 5)
         }
         bpmView = TextView(this).apply {
             setTextColor(TEXT_PRIMARY)
-            textSize = 14f
+            textSize = 13f
             gravity = Gravity.CENTER
-            setPadding(8.dpToPx(), 0, 8.dpToPx(), 0)
+            setPadding(2.dpToPx(), 0, 2.dpToPx(), 0)
         }
         btnBpmUp = makeButton(R.drawable.ic_add, "加速") {
             OverlayController.updateBpm(OverlayController.bpm.value + 5)
         }
-        bpmRow.addView(btnBpmDown)
-        bpmRow.addView(bpmView)
-        bpmRow.addView(btnBpmUp)
-        expandedContent.addView(bpmRow)
+        expandedContent.addView(btnBpmDown)
+        expandedContent.addView(bpmView)
+        expandedContent.addView(btnBpmUp)
 
-        // 按钮行：演奏 / 暂停 / 停止 / 校准
-        val btnRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
+        // 播放控制按钮：开始 / 暂停 / 停止 / 乐谱库 / 校准
         btnPlay = makeButton(R.drawable.ic_play, "开始演奏") { OverlayController.start(this) }
         btnPause = makeButton(R.drawable.ic_pause, "暂停 / 恢复") {
             when (OverlayController.playState.value) {
@@ -236,12 +227,11 @@ class OverlayService : Service() {
         btnStop = makeButton(R.drawable.ic_stop, "停止演奏") { OverlayController.stop() }
         btnLibrary = makeButton(R.drawable.ic_library, "切换乐谱") { showScorePicker() }
         btnCalibrate = makeButton(R.drawable.ic_tune, "校准按键") { startCalibration() }
-        btnRow.addView(btnPlay)
-        btnRow.addView(btnPause)
-        btnRow.addView(btnStop)
-        btnRow.addView(btnLibrary)
-        btnRow.addView(btnCalibrate)
-        expandedContent.addView(btnRow)
+        expandedContent.addView(btnPlay)
+        expandedContent.addView(btnPause)
+        expandedContent.addView(btnStop)
+        expandedContent.addView(btnLibrary)
+        expandedContent.addView(btnCalibrate)
         root.addView(expandedContent)
 
         // 拖动支持
@@ -286,7 +276,7 @@ class OverlayService : Service() {
             return
         }
         val names = scores.map { "${it.name}（${it.bpm} BPM）" }.toTypedArray()
-        val dlg = android.app.AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+        val dlg = android.app.AlertDialog.Builder(this, android.R.style.Theme_Material_Light_Dialog_Alert)
             .setTitle("切换乐谱")
             .setItems(names) { d, which ->
                 val s = scores[which]
@@ -414,12 +404,12 @@ class OverlayService : Service() {
         private const val CHANNEL_ID = "overlay"
         private const val ACTION_REFRESH = "cc.eu.jeanwenzel.Noctreed.action.REFRESH"
 
-        // 配色：Material 3 深色主题感，不用系统 emoji 图标
-        private const val PANEL_BG = 0xE61E1F22.toInt()
-        private const val BTN_BG = 0xFF3B3F47.toInt()
-        private const val TEXT_PRIMARY = 0xFFE3E3E6.toInt()
-        private const val TEXT_SECONDARY = 0xFFB8BCC2.toInt()
-        private const val ACCENT = 0xFF7C9EFF.toInt()
+        // 配色：浅色主题，与 Material You 浅色系协调
+        private const val PANEL_BG = 0xF0FFFFFF.toInt()
+        private const val BTN_BG = 0xFFE8EAED.toInt()
+        private const val TEXT_PRIMARY = 0xFF1F1F1F.toInt()
+        private const val TEXT_SECONDARY = 0xFF5F6368.toInt()
+        private const val ACCENT = 0xFF1A73E8.toInt()
         private const val DANGER_BG = 0xFFE81123.toInt()
 
         var instance: OverlayService? = null
