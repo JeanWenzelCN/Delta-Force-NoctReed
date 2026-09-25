@@ -118,7 +118,7 @@ class OverlayService : Service() {
             val pad = (6 * resources.displayMetrics.density).toInt()
             setPadding(pad, pad, pad, pad)
             layoutParams = LinearLayout.LayoutParams(size, size).apply {
-                setMargins(3.dpToPx(), 0, 3.dpToPx(), 0)
+                setMargins(5.dpToPx(), 0, 5.dpToPx(), 0)
             }
             setOnClickListener { onClick() }
         }
@@ -175,24 +175,29 @@ class OverlayService : Service() {
         header.addView(btnClose)
         root.addView(header)
 
-        // 展开内容：主控制行（信息区 + BPM + 播放控制按钮）
-        // 横屏保持宽扁单行，避免遮挡演奏界面；竖屏改为上下两行，避免过宽显示不全
+        // 展开内容：无论横竖屏都拆为多行，保证高度压扁（横屏不遮挡演奏界面）且不横向溢出
         val isPortrait = resources.configuration.orientation ==
             android.content.res.Configuration.ORIENTATION_PORTRAIT
         expandedContent = LinearLayout(this).apply {
-            orientation = if (isPortrait) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+            orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, 6.dpToPx(), 0, 0)
         }
-        // 按钮区在竖屏下拆为两行：BPM 调速一行、播放控制一行，避免横排溢出屏幕
-        val bpmRow = if (isPortrait) LinearLayout(this).apply {
+        // 按钮区始终拆两行：BPM 调速一行、播放控制一行；横屏时信息列与按钮行并排以降低总高
+        val bpmRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-        } else expandedContent
-        val ctrlRow = if (isPortrait) LinearLayout(this).apply {
+        }
+        val ctrlRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-        } else expandedContent
+        }
+        // 横屏：信息列 | (bpmRow / ctrlRow) 两排并排，总高仅约两行按钮 ≈ 屏幕高度 2/7
+        // 竖屏：信息列 → bpmRow → ctrlRow 三行堆叠，宽度远小于屏宽不溢出
+        val rowsColumn = if (isPortrait) expandedContent else LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
         // 左侧信息列：曲名 + 乐句（演奏时可见）
         val infoColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -213,7 +218,7 @@ class OverlayService : Service() {
         }
         infoColumn.addView(scoreNameView)
         infoColumn.addView(phraseView)
-        expandedContent.addView(infoColumn)
+        if (isPortrait) expandedContent.addView(infoColumn)
         // BPM 实时调速：减号 / 数值 / 加号
         btnBpmDown = makeButton(R.drawable.ic_remove, "减速") {
             OverlayController.updateBpm(OverlayController.bpm.value - 5)
@@ -250,6 +255,17 @@ class OverlayService : Service() {
         if (isPortrait) {
             expandedContent.addView(bpmRow)
             expandedContent.addView(ctrlRow)
+        } else {
+            // 横屏：信息列与两行按钮并排，高度压到最低
+            val landscapeRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            landscapeRow.addView(infoColumn)
+            rowsColumn.addView(bpmRow)
+            rowsColumn.addView(ctrlRow)
+            landscapeRow.addView(rowsColumn)
+            expandedContent.addView(landscapeRow)
         }
         root.addView(expandedContent)
 
