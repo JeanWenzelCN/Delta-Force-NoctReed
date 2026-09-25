@@ -25,6 +25,7 @@ import cc.eu.jeanwenzel.Noctreed.MainActivity
 import cc.eu.jeanwenzel.Noctreed.R
 import cc.eu.jeanwenzel.Noctreed.data.CalibrationStore
 import cc.eu.jeanwenzel.Noctreed.data.Keys
+import cc.eu.jeanwenzel.Noctreed.data.ScoreStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -39,6 +40,7 @@ class OverlayService : Service() {
     private var calibIndex = 0
     private var collapsed = false
     private lateinit var store: CalibrationStore
+    private lateinit var scoreStore: ScoreStore
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     private lateinit var title: TextView
@@ -51,6 +53,7 @@ class OverlayService : Service() {
     private lateinit var btnCalibrate: ImageButton
     private lateinit var btnMinimize: ImageButton
     private lateinit var btnClose: ImageButton
+    private lateinit var btnLibrary: ImageButton
     private lateinit var expandedContent: LinearLayout
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -59,6 +62,7 @@ class OverlayService : Service() {
         super.onCreate()
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         store = CalibrationStore(this)
+        scoreStore = ScoreStore(this)
         startForeground(1, buildNotification())
         showPanel()
         // 订阅状态总线：状态变化自动刷新悬浮窗（修复按钮偶发失效）
@@ -178,11 +182,13 @@ class OverlayService : Service() {
         }
         expandedContent.addView(scoreNameView)
 
-        // 正在演奏的乐句（第 x/y 句）
+        // 正在演奏的乐句（第 x/y 句 + 简谱）
         phraseView = TextView(this).apply {
             setTextColor(TEXT_SECONDARY)
             textSize = 12f
             setSingleLine()
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            maxWidth = 220.dpToPx()
             setPadding(0, 0, 0, 10.dpToPx())
         }
         expandedContent.addView(phraseView)
@@ -201,10 +207,12 @@ class OverlayService : Service() {
             }
         }
         btnStop = makeButton(R.drawable.ic_stop, "停止演奏") { OverlayController.stop() }
+        btnLibrary = makeButton(R.drawable.ic_library, "切换乐谱") { showScorePicker() }
         btnCalibrate = makeButton(R.drawable.ic_tune, "校准按键") { startCalibration() }
         btnRow.addView(btnPlay)
         btnRow.addView(btnPause)
         btnRow.addView(btnStop)
+        btnRow.addView(btnLibrary)
         btnRow.addView(btnCalibrate)
         expandedContent.addView(btnRow)
         root.addView(expandedContent)
@@ -239,6 +247,33 @@ class OverlayService : Service() {
     private fun toggleCollapse() {
         collapsed = !collapsed
         expandedContent.visibility = if (collapsed) View.GONE else View.VISIBLE
+        btnMinimize.setImageResource(if (collapsed) R.drawable.ic_expand else R.drawable.ic_minimize)
+        btnMinimize.contentDescription = if (collapsed) "展开" else "最小化"
+    }
+
+    /** 悬浮窗内切换乐谱：弹出已保存乐谱列表，选中后同步三件套 */
+    private fun showScorePicker() {
+        val scores = scoreStore.list()
+        if (scores.isEmpty()) {
+            android.widget.Toast.makeText(this, "乐谱库为空，请先在应用内保存乐谱", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        val names = scores.map { "${it.name}（${it.bpm} BPM）" }.toTypedArray()
+        val dlg = android.app.AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle("切换乐谱")
+            .setItems(names) { d, which ->
+                val s = scores[which]
+                OverlayController.updateScore(s.text)
+                OverlayController.updateBpm(s.bpm)
+                OverlayController.updateScoreName(s.name)
+                refreshPanel()
+                d.dismiss()
+            }
+            .setNegativeButton("取消", null)
+            .create()
+        // 悬浮窗服务里弹窗必须用 overlay window 类型，否则 BadTokenException
+        dlg.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
+        dlg.show()
     }
 
     /** 刷新悬浮窗显示（供外部调用） */
@@ -276,19 +311,25 @@ class OverlayService : Service() {
 
         // 曲目名与乐句：仅演奏/暂停时可见
         val name = OverlayController.scoreName.value
-        val (cur, total) = OverlayController.phrase.value
+        val phrase = OverlayController.phrase.value
         if ((playing || paused) && name.isNotEmpty()) {
             scoreNameView.visibility = View.VISIBLE
             scoreNameView.text = "♪ $name"
         } else {
             scoreNameView.visibility = View.GONE
         }
-        if ((playing || paused) && total > 0) {
+        if ((playing || paused) && phrase.total > 0) {
             phraseView.visibility = View.VISIBLE
-            phraseView.text = "第 $cur / $total 句"
+            phraseView.text = if (phrase.text.isNotEmpty())
+                "第 ${phrase.index}/${phrase.total} 句  ${phrase.text}"
+            else
+                "第 ${phrase.index} / ${phrase.total} 句"
         } else {
             phraseView.visibility = View.GONE
         }
+
+        // 同步最小化/展开图标，防止状态漂移
+        btnMinimize.setImageResource(if (collapsed) R.drawable.ic_expand else R.drawable.ic_minimize)
     }
 
     /** 启动校准模式：全屏透明层捕获点击，悬浮窗同步提示 */

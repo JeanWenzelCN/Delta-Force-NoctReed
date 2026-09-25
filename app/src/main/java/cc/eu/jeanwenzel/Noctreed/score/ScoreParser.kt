@@ -22,7 +22,12 @@ sealed class ScoreEvent {
  */
 object ScoreParser {
 
-    data class Parsed(val events: List<ScoreEvent>, val phraseCount: Int)
+    data class Parsed(
+        val events: List<ScoreEvent>,
+        val phraseCount: Int,
+        /** 每个乐句的简谱原文（按解析出的有效乐句切分），供悬浮窗实时显示 */
+        val phrases: List<String> = emptyList()
+    )
 
     fun parse(text: String): List<ScoreEvent> = parseWithPhrases(text).events
 
@@ -31,6 +36,8 @@ object ScoreParser {
         val events = mutableListOf<ScoreEvent>()
         var phrase = 0
         var sawTokenInPhrase = false
+        val phrases = mutableListOf<String>()
+        val phraseTokens = StringBuilder()
 
         // 先统一分隔符：逗号 → 空白；| 与换行是乐句边界
         val normalized = text.replace('，', ' ').replace(',', ' ')
@@ -48,16 +55,27 @@ object ScoreParser {
         }
         flushToken()
 
+        fun flushPhrase() {
+            if (phrases.size <= phrase) phrases.add(phraseTokens.toString().trim())
+        }
         for ((token, boundary) in tokens) {
             if (boundary) {
-                if (sawTokenInPhrase) { phrase++; sawTokenInPhrase = false }
+                if (sawTokenInPhrase) {
+                    flushPhrase()
+                    phraseTokens.clear()
+                    phrase++
+                    sawTokenInPhrase = false
+                }
                 continue
             }
+            if (phraseTokens.isNotEmpty()) phraseTokens.append(' ')
+            phraseTokens.append(token)
             val before = events.size
             parseToken(token, events, phrase)
             if (events.size > before) sawTokenInPhrase = true
         }
-        return Parsed(events, if (events.isEmpty()) 0 else phrase + 1)
+        if (sawTokenInPhrase || phrases.size <= phrase && events.isNotEmpty()) flushPhrase()
+        return Parsed(events, if (events.isEmpty()) 0 else phrase + 1, phrases)
     }
 
     private fun parseToken(t: String, events: MutableList<ScoreEvent>, phrase: Int) {

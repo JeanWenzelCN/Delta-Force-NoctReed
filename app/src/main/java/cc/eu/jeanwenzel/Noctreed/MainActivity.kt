@@ -83,6 +83,10 @@ fun MainScreen() {
     var showSaveDialog by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<ScoreStore.SavedScore?>(null) }
     var nameInput by remember { mutableStateOf("") }
+    // 导入失败弹窗（Toast 两行截断显示不全，改用弹窗展示完整原因）
+    var importError by remember { mutableStateOf<String?>(null) }
+    // 独立乐谱库界面开关
+    var showLibrary by remember { mutableStateOf(false) }
 
     // txt / midi 导入（SAF）
     val importLauncher = rememberLauncherForActivityResult(
@@ -111,17 +115,24 @@ fun MainScreen() {
                 Toast.makeText(context, "已从 $source 导入", Toast.LENGTH_SHORT).show()
             }
         }.onFailure {
-            Toast.makeText(context, "导入失败：${it.message}", Toast.LENGTH_LONG).show()
+            importError = it.message ?: "未知错误"
         }
     }
 
-    // 回到前台时刷新权限状态
+    // 回到前台时刷新权限状态，并同步悬浮窗内可能已切换的乐谱
     LaunchedEffect(Unit) {
         OverlayController.updateScore(scoreText)
         while (true) {
             accessibilityOn = HarmonicaAccessibilityService.isEnabled()
             overlayOn = Settings.canDrawOverlays(context)
             calibrated = store.allCalibrated()
+            // 悬浮窗内切换乐谱后，回到主界面时同步显示
+            val ctrlScore = OverlayController.score.value
+            if (ctrlScore != scoreText) scoreText = ctrlScore
+            val ctrlBpm = OverlayController.bpm.value
+            if (ctrlBpm.toString() != bpmText) bpmText = ctrlBpm.toString()
+            val ctrlName = OverlayController.scoreName.value
+            if (ctrlName != scoreName) scoreName = ctrlName
             kotlinx.coroutines.delay(1000)
         }
     }
@@ -239,53 +250,13 @@ fun MainScreen() {
                     ) { Text("保存乐谱") }
                 }
 
-                // 已保存乐谱列表
-                if (savedScores.isNotEmpty()) {
-                    var expanded by remember { mutableStateOf(false) }
-                    Box {
-                        OutlinedButton(onClick = { expanded = true }) {
-                            Text("我的乐谱（${savedScores.size}）")
-                            Icon(Icons.Default.KeyboardArrowDown, contentDescription = null)
-                        }
-                        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                            savedScores.forEach { s ->
-                                DropdownMenuItem(
-                                    text = { Text("${s.name} · ${s.bpm} BPM") },
-                                    onClick = {
-                                        scoreText = s.text
-                                        bpmText = s.bpm.toString()
-                                        scoreName = s.name
-                                        OverlayController.updateScore(s.text)
-                                        OverlayController.updateBpm(s.bpm)
-                                        OverlayController.updateScoreName(s.name)
-                                        expanded = false
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text("重命名「${s.name}」",
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    },
-                                    onClick = {
-                                        renameTarget = s
-                                        nameInput = s.name
-                                        expanded = false
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text("删除「${s.name}」",
-                                            color = MaterialTheme.colorScheme.error)
-                                    },
-                                    onClick = {
-                                        scoreStore.delete(s.name)
-                                        savedScores = scoreStore.list()
-                                        expanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
+                // 乐谱库入口：跳转独立界面
+                OutlinedButton(
+                    onClick = { showLibrary = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (scoreName.isNotBlank()) "$scoreName（${savedScores.size}）"
+                        else "我的乐谱（${savedScores.size}）")
                 }
 
                 // 演奏控制
@@ -336,6 +307,74 @@ fun MainScreen() {
         }
 
         Spacer(Modifier.height(24.dp))
+    }
+
+    // —— 导入失败弹窗 ——
+    importError?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { importError = null },
+            title = { Text("导入失败") },
+            text = { Text(msg) },
+            confirmButton = {
+                TextButton(onClick = { importError = null }) { Text("知道了") }
+            }
+        )
+    }
+
+    // —— 独立乐谱库界面 ——
+    if (showLibrary) {
+        AlertDialog(
+            onDismissRequest = { showLibrary = false },
+            title = { Text("乐谱库（${savedScores.size}）") },
+            text = {
+                if (savedScores.isEmpty()) {
+                    Text("暂无已保存乐谱，请先保存。")
+                } else {
+                    Column(
+                        modifier = Modifier.verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        savedScores.forEach { s ->
+                            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(s.name, style = MaterialTheme.typography.titleSmall)
+                                    Text(
+                                        "${s.bpm} BPM · ${s.text.take(40)}${if (s.text.length > 40) "…" else ""}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        TextButton(onClick = {
+                                            scoreText = s.text
+                                            bpmText = s.bpm.toString()
+                                            scoreName = s.name
+                                            OverlayController.updateScore(s.text)
+                                            OverlayController.updateBpm(s.bpm)
+                                            OverlayController.updateScoreName(s.name)
+                                            showLibrary = false
+                                        }) { Text("载入") }
+                                        TextButton(onClick = {
+                                            renameTarget = s
+                                            nameInput = s.name
+                                            showLibrary = false
+                                        }) { Text("重命名") }
+                                        TextButton(onClick = {
+                                            scoreStore.delete(s.name)
+                                            savedScores = scoreStore.list()
+                                        }) {
+                                            Text("删除", color = MaterialTheme.colorScheme.error)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLibrary = false }) { Text("关闭") }
+            }
+        )
     }
 
     // —— 保存乐谱命名对话框 ——

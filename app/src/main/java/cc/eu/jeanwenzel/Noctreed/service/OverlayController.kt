@@ -29,8 +29,9 @@ object OverlayController {
     private val _scoreName = MutableStateFlow("")
     val scoreName = _scoreName.asStateFlow()
 
-    /** 正在演奏的乐句：first = 当前序号（从 1 起），second = 总乐句数；0/0 表示无 */
-    private val _phrase = MutableStateFlow(0 to 0)
+    /** 正在演奏的乐句：index 当前序号（从 1 起）、total 总乐句数、text 该乐句的简谱文本；0/0 表示无 */
+    data class PhraseInfo(val index: Int, val total: Int, val text: String = "")
+    private val _phrase = MutableStateFlow(PhraseInfo(0, 0, ""))
     val phrase = _phrase.asStateFlow()
 
     fun updateScore(text: String) { _score.value = text }
@@ -38,7 +39,9 @@ object OverlayController {
     fun updateScoreName(name: String) { _scoreName.value = name }
 
     /** 演奏中由无障碍服务上报当前乐句 */
-    fun notifyPhrase(index: Int, total: Int) { _phrase.value = index to total }
+    fun notifyPhrase(index: Int, total: Int, text: String = "") {
+        _phrase.value = PhraseInfo(index, total, text)
+    }
 
     fun start(context: Context) {
         val service = HarmonicaAccessibilityService.instance
@@ -64,13 +67,13 @@ object OverlayController {
     fun stop() {
         HarmonicaAccessibilityService.instance?.stopPlaying()
         setState(PlayState.IDLE)
-        _phrase.value = 0 to 0
+        _phrase.value = PhraseInfo(0, 0, "")
     }
 
     fun notifyPlayState(playing: Boolean) {
         if (!playing) {
             setState(PlayState.IDLE)
-            _phrase.value = 0 to 0
+            _phrase.value = PhraseInfo(0, 0, "")
         }
     }
 

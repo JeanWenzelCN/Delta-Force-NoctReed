@@ -68,7 +68,8 @@ class HarmonicaAccessibilityService : AccessibilityService() {
         val events = parsed.events
         if (events.isEmpty()) return
         val phraseCount = parsed.phraseCount
-        OverlayController.notifyPhrase(if (phraseCount > 0) 1 else 0, phraseCount)
+        val phrases = parsed.phrases
+        OverlayController.notifyPhrase(if (phraseCount > 0) 1 else 0, phraseCount, phrases.getOrNull(0) ?: "")
         val beatMs = (60000L / bpm).coerceAtLeast(100L)
         val switchGap = 120L // 状态切换与音符之间的间隔
         paused = false
@@ -87,7 +88,7 @@ class HarmonicaAccessibilityService : AccessibilityService() {
                 }
                 if (pi != lastPhrase) {
                     lastPhrase = pi
-                    OverlayController.notifyPhrase(pi + 1, phraseCount)
+                    OverlayController.notifyPhrase(pi + 1, phraseCount, phrases.getOrNull(pi) ?: "")
                 }
                 when (event) {
                     is ScoreEvent.Rest -> delayInterruptibly(beatMs * event.beats)
