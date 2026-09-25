@@ -1,4 +1,4 @@
-package com.reedkit.delta
+package cc.eu.jeanwenzel.Noctreed
 
 import android.content.Intent
 import android.net.Uri
@@ -28,19 +28,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.reedkit.delta.data.CalibrationStore
-import com.reedkit.delta.data.ScoreStore
-import com.reedkit.delta.score.ScoreParser
-import com.reedkit.delta.service.HarmonicaAccessibilityService
-import com.reedkit.delta.service.OverlayController
-import com.reedkit.delta.service.OverlayService
-import com.reedkit.delta.service.PlayState
+import cc.eu.jeanwenzel.Noctreed.data.CalibrationStore
+import cc.eu.jeanwenzel.Noctreed.data.ScoreStore
+import cc.eu.jeanwenzel.Noctreed.score.MidiImporter
+import cc.eu.jeanwenzel.Noctreed.score.ScoreParser
+import cc.eu.jeanwenzel.Noctreed.service.HarmonicaAccessibilityService
+import cc.eu.jeanwenzel.Noctreed.service.OverlayController
+import cc.eu.jeanwenzel.Noctreed.service.OverlayService
+import cc.eu.jeanwenzel.Noctreed.service.PlayState
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            ReedkitTheme {
+            NoctreedTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -53,7 +54,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun ReedkitTheme(content: @Composable () -> Unit) {
+fun NoctreedTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
     val dark = isSystemInDarkTheme()
     // Material You 莫奈动态取色（minSdk 31+ 原生支持）
@@ -77,23 +78,40 @@ fun MainScreen() {
     val playState by OverlayController.playState.collectAsState()
     val playing = playState != PlayState.IDLE
 
-    // txt 导入（SAF）
+    // 当前编辑中的曲目名（载入/保存/重命名共用）
+    var scoreName by remember { mutableStateOf("") }
+    var showSaveDialog by remember { mutableStateOf(false) }
+    var renameTarget by remember { mutableStateOf<ScoreStore.SavedScore?>(null) }
+    var nameInput by remember { mutableStateOf("") }
+
+    // txt / midi 导入（SAF）
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri ?: return@rememberLauncherForActivityResult
         runCatching {
             context.contentResolver.openInputStream(uri)?.use { input ->
-                input.bufferedReader().readText()
-            }
-        }.onSuccess { text ->
-            if (!text.isNullOrBlank()) {
-                scoreText = text.trim()
+                val isMidi = uri.toString().endsWith(".mid", true) ||
+                    uri.toString().endsWith(".midi", true) ||
+                    context.contentResolver.getType(uri)?.contains("midi") == true
+                if (isMidi) {
+                    val result = MidiImporter.parse(input)
+                    Triple(result.jianpu, result.bpm, "MIDI（${result.noteCount} 个音符）")
+                } else {
+                    Triple(input.bufferedReader().readText().trim(), null, "txt")
+                }
+            } ?: throw Exception("无法读取文件")
+        }.onSuccess { (text, midiBpm, source) ->
+            if (text.isNotBlank()) {
+                scoreText = text
+                if (midiBpm != null) bpmText = midiBpm.toString()
+                scoreName = uri.lastPathSegment?.substringAfterLast('/')?.substringBeforeLast('.') ?: ""
                 OverlayController.updateScore(scoreText)
-                Toast.makeText(context, "乐谱已导入", Toast.LENGTH_SHORT).show()
+                midiBpm?.let(OverlayController::updateBpm)
+                Toast.makeText(context, "已从 $source 导入", Toast.LENGTH_SHORT).show()
             }
         }.onFailure {
-            Toast.makeText(context, "导入失败：${it.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "导入失败：${it.message}", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -117,7 +135,7 @@ fun MainScreen() {
     ) {
         Spacer(Modifier.height(8.dp))
         Text(
-            "Reedkit",
+            "Noctreed",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold
         )
@@ -132,7 +150,7 @@ fun MainScreen() {
             step = "第 1 步",
             title = "开启无障碍服务",
             done = accessibilityOn,
-            description = "用于模拟手势点击游戏按键（canPerformGestures）。点击按钮跳转系统设置，找到「Reedkit」并开启。"
+            description = "用于模拟手势点击游戏按键（canPerformGestures）。点击按钮跳转系统设置，找到「Noctreed」并开启。"
         ) {
             Button(onClick = {
                 context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -206,18 +224,17 @@ fun MainScreen() {
                     singleLine = true
                 )
 
-                // txt 导入 + 保存
+                // 导入 + 保存
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(onClick = {
-                        importLauncher.launch(arrayOf("text/plain"))
-                    }) { Text("导入 txt") }
+                        importLauncher.launch(arrayOf("*/*"))
+                    }) { Text("导入乐谱 / MIDI") }
                     OutlinedButton(
                         enabled = scoreText.isNotBlank(),
                         onClick = {
-                            val name = "乐谱 ${savedScores.size + 1}"
-                            scoreStore.save(name, scoreText, bpmText.toIntOrNull() ?: 90)
-                            savedScores = scoreStore.list()
-                            Toast.makeText(context, "已保存为「$name」", Toast.LENGTH_SHORT).show()
+                            nameInput = if (scoreName.isNotBlank()) scoreName
+                                else "乐谱 ${savedScores.size + 1}"
+                            showSaveDialog = true
                         }
                     ) { Text("保存乐谱") }
                 }
@@ -237,8 +254,32 @@ fun MainScreen() {
                                     onClick = {
                                         scoreText = s.text
                                         bpmText = s.bpm.toString()
+                                        scoreName = s.name
                                         OverlayController.updateScore(s.text)
                                         OverlayController.updateBpm(s.bpm)
+                                        OverlayController.updateScoreName(s.name)
+                                        expanded = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text("重命名「${s.name}」",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    },
+                                    onClick = {
+                                        renameTarget = s
+                                        nameInput = s.name
+                                        expanded = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text("删除「${s.name}」",
+                                            color = MaterialTheme.colorScheme.error)
+                                    },
+                                    onClick = {
+                                        scoreStore.delete(s.name)
+                                        savedScores = scoreStore.list()
                                         expanded = false
                                     }
                                 )
@@ -253,6 +294,7 @@ fun MainScreen() {
                         enabled = accessibilityOn && calibrated && scoreText.isNotBlank() && !playing,
                         onClick = {
                             OverlayController.updateScore(scoreText)
+                            OverlayController.updateScoreName(scoreName.ifBlank { "未命名乐谱" })
                             OverlayController.start(context)
                         }
                     ) { Text("开始") }
@@ -285,7 +327,8 @@ fun MainScreen() {
                 Text(
                     "使用流程：开启无障碍 → 授权悬浮窗 → 启动悬浮窗后进入游戏打开口琴 → " +
                         "在悬浮窗上完成校准 → 切回游戏，用悬浮窗的开始 / 暂停 / 停止控制演奏。\n\n" +
-                        "演奏时先切换音区（互斥），再切换半音（独立开关），已在目标状态时自动跳过，最后点击音符键。",
+                        "演奏时先切换音区（互斥），再切换半音（独立开关），已在目标状态时自动跳过，最后点击音符键。\n\n" +
+                        "支持导入 MIDI 文件自动转为简谱，要求：单音轨、无和弦（单旋律）、音域在低音 5 ～ 高音 1 之间。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -293,6 +336,79 @@ fun MainScreen() {
         }
 
         Spacer(Modifier.height(24.dp))
+    }
+
+    // —— 保存乐谱命名对话框 ——
+    if (showSaveDialog) {
+        AlertDialog(
+            onDismissRequest = { showSaveDialog = false },
+            title = { Text("保存乐谱") },
+            text = {
+                OutlinedTextField(
+                    value = nameInput,
+                    onValueChange = { nameInput = it },
+                    singleLine = true,
+                    label = { Text("曲名") }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val name = nameInput.trim()
+                    if (name.isEmpty()) {
+                        Toast.makeText(context, "曲名不能为空", Toast.LENGTH_SHORT).show()
+                        return@TextButton
+                    }
+                    scoreStore.save(name, scoreText, bpmText.toIntOrNull() ?: 90)
+                    savedScores = scoreStore.list()
+                    scoreName = name
+                    OverlayController.updateScoreName(name)
+                    showSaveDialog = false
+                    Toast.makeText(context, "已保存为「$name」", Toast.LENGTH_SHORT).show()
+                }) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSaveDialog = false }) { Text("取消") }
+            }
+        )
+    }
+
+    // —— 重命名对话框 ——
+    renameTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("重命名乐谱") },
+            text = {
+                OutlinedTextField(
+                    value = nameInput,
+                    onValueChange = { nameInput = it },
+                    singleLine = true,
+                    label = { Text("新曲名") }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val newName = nameInput.trim()
+                    if (newName.isEmpty()) {
+                        Toast.makeText(context, "曲名不能为空", Toast.LENGTH_SHORT).show()
+                        return@TextButton
+                    }
+                    if (scoreStore.rename(target.name, newName)) {
+                        savedScores = scoreStore.list()
+                        if (scoreName == target.name) {
+                            scoreName = newName
+                            OverlayController.updateScoreName(newName)
+                        }
+                        Toast.makeText(context, "已重命名为「$newName」", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "重命名失败：名称「$newName」已被占用", Toast.LENGTH_LONG).show()
+                    }
+                    renameTarget = null
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameTarget = null }) { Text("取消") }
+            }
+        )
     }
 }
 

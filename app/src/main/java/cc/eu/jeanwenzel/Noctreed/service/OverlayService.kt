@@ -1,4 +1,4 @@
-package com.reedkit.delta.service
+package cc.eu.jeanwenzel.Noctreed.service
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -21,10 +21,15 @@ import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.core.view.setMargins
 import androidx.core.view.setPadding
-import com.reedkit.delta.MainActivity
-import com.reedkit.delta.R
-import com.reedkit.delta.data.CalibrationStore
-import com.reedkit.delta.data.Keys
+import cc.eu.jeanwenzel.Noctreed.MainActivity
+import cc.eu.jeanwenzel.Noctreed.R
+import cc.eu.jeanwenzel.Noctreed.data.CalibrationStore
+import cc.eu.jeanwenzel.Noctreed.data.Keys
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 class OverlayService : Service() {
 
@@ -34,14 +39,18 @@ class OverlayService : Service() {
     private var calibIndex = 0
     private var collapsed = false
     private lateinit var store: CalibrationStore
+    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     private lateinit var title: TextView
     private lateinit var status: TextView
+    private lateinit var scoreNameView: TextView
+    private lateinit var phraseView: TextView
     private lateinit var btnPlay: ImageButton
     private lateinit var btnPause: ImageButton
     private lateinit var btnStop: ImageButton
     private lateinit var btnCalibrate: ImageButton
-    private lateinit var btnCollapse: ImageButton
+    private lateinit var btnMinimize: ImageButton
+    private lateinit var btnClose: ImageButton
     private lateinit var expandedContent: LinearLayout
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -52,6 +61,10 @@ class OverlayService : Service() {
         store = CalibrationStore(this)
         startForeground(1, buildNotification())
         showPanel()
+        // 订阅状态总线：状态变化自动刷新悬浮窗（修复按钮偶发失效）
+        serviceScope.launch { OverlayController.playState.collect { refreshPanel() } }
+        serviceScope.launch { OverlayController.scoreName.collect { refreshPanel() } }
+        serviceScope.launch { OverlayController.phrase.collect { refreshPanel() } }
     }
 
     private fun buildNotification(): Notification {
@@ -62,7 +75,7 @@ class OverlayService : Service() {
             PendingIntent.FLAG_IMMUTABLE
         )
         return Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("Reedkit 正在运行")
+            .setContentTitle("Noctreed 正在运行")
             .setContentText("点击返回应用")
             .setSmallIcon(R.drawable.ic_play)
             .setContentIntent(pi)
@@ -115,23 +128,28 @@ class OverlayService : Service() {
             setPadding(14.dpToPx(), 12.dpToPx(), 14.dpToPx(), 12.dpToPx())
         }
 
-        // 标题栏：Reedkit + 收起按钮
+        // 标题栏：Noctreed + 最小化/关闭按钮（Windows 风格）
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
         title = TextView(this).apply {
-            text = "Reedkit"
+            text = "Noctreed"
             setTextColor(TEXT_PRIMARY)
             textSize = 15f
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
-        btnCollapse = makeButton(R.drawable.ic_collapse, "收起") { toggleCollapse() }
-        btnCollapse.layoutParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        )
+        btnMinimize = makeButton(R.drawable.ic_minimize, "最小化") { toggleCollapse() }
+        btnClose = makeButton(R.drawable.ic_close, "关闭悬浮窗") {
+            OverlayService.stop(this)
+        }
+        btnClose.background = GradientDrawable().apply {
+            cornerRadius = 20f * resources.displayMetrics.density
+            setColor(DANGER_BG)
+        }
         header.addView(title)
-        header.addView(btnCollapse)
+        header.addView(btnMinimize)
+        header.addView(btnClose)
         root.addView(header)
 
         // 展开内容
@@ -148,6 +166,26 @@ class OverlayService : Service() {
             setPadding(0, 0, 0, 10.dpToPx())
         }
         expandedContent.addView(status)
+
+        // 曲目名（演奏中显示）
+        scoreNameView = TextView(this).apply {
+            setTextColor(ACCENT)
+            textSize = 13f
+            setSingleLine()
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            maxWidth = 220.dpToPx()
+            setPadding(0, 0, 0, 4.dpToPx())
+        }
+        expandedContent.addView(scoreNameView)
+
+        // 正在演奏的乐句（第 x/y 句）
+        phraseView = TextView(this).apply {
+            setTextColor(TEXT_SECONDARY)
+            textSize = 12f
+            setSingleLine()
+            setPadding(0, 0, 0, 10.dpToPx())
+        }
+        expandedContent.addView(phraseView)
 
         // 按钮行：演奏 / 暂停 / 停止 / 校准
         val btnRow = LinearLayout(this).apply {
@@ -205,6 +243,7 @@ class OverlayService : Service() {
 
     /** 刷新悬浮窗显示（供外部调用） */
     fun refreshPanel() {
+        if (!::title.isInitialized) return // 面板尚未创建时忽略状态推送
         val calibKey = if (calibrating) Keys.ALL.getOrNull(calibIndex) else null
         when {
             calibrating && calibKey != null -> {
@@ -224,11 +263,32 @@ class OverlayService : Service() {
                 btnCalibrate.clearColorFilter()
             }
         }
-        // 演奏/暂停按钮可用性
-        val playing = OverlayController.playState.value == PlayState.PLAYING
-        btnPlay.alpha = if (playing) 0.4f else 1f
-        btnPause.alpha = if (playing || OverlayController.playState.value == PlayState.PAUSED) 1f else 0.4f
-        btnStop.alpha = if (playing || OverlayController.playState.value == PlayState.PAUSED) 1f else 0.4f
+        // 演奏/暂停按钮可用性：用 isEnabled 真实禁用（修复视觉灰但仍可点的缺陷）
+        val st = OverlayController.playState.value
+        val playing = st == PlayState.PLAYING
+        val paused = st == PlayState.PAUSED
+        btnPlay.isEnabled = !playing && !paused
+        btnPlay.alpha = if (btnPlay.isEnabled) 1f else 0.4f
+        btnPause.isEnabled = playing || paused
+        btnPause.alpha = if (btnPause.isEnabled) 1f else 0.4f
+        btnStop.isEnabled = playing || paused
+        btnStop.alpha = if (btnStop.isEnabled) 1f else 0.4f
+
+        // 曲目名与乐句：仅演奏/暂停时可见
+        val name = OverlayController.scoreName.value
+        val (cur, total) = OverlayController.phrase.value
+        if ((playing || paused) && name.isNotEmpty()) {
+            scoreNameView.visibility = View.VISIBLE
+            scoreNameView.text = "♪ $name"
+        } else {
+            scoreNameView.visibility = View.GONE
+        }
+        if ((playing || paused) && total > 0) {
+            phraseView.visibility = View.VISIBLE
+            phraseView.text = "第 $cur / $total 句"
+        } else {
+            phraseView.visibility = View.GONE
+        }
     }
 
     /** 启动校准模式：全屏透明层捕获点击，悬浮窗同步提示 */
@@ -267,6 +327,9 @@ class OverlayService : Service() {
 
     override fun onDestroy() {
         panel?.let { wm.removeView(it) }
+        panel = null
+        serviceScope.cancel()
+        instance = null
         super.onDestroy()
     }
 
@@ -278,7 +341,7 @@ class OverlayService : Service() {
 
     companion object {
         private const val CHANNEL_ID = "overlay"
-        private const val ACTION_REFRESH = "com.reedkit.delta.action.REFRESH"
+        private const val ACTION_REFRESH = "cc.eu.jeanwenzel.Noctreed.action.REFRESH"
 
         // 配色：Material 3 深色主题感，不用系统 emoji 图标
         private const val PANEL_BG = 0xE61E1F22.toInt()
@@ -286,6 +349,7 @@ class OverlayService : Service() {
         private const val TEXT_PRIMARY = 0xFFE3E3E6.toInt()
         private const val TEXT_SECONDARY = 0xFFB8BCC2.toInt()
         private const val ACCENT = 0xFF7C9EFF.toInt()
+        private const val DANGER_BG = 0xFFE81123.toInt()
 
         var instance: OverlayService? = null
             private set

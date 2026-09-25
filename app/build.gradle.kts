@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.reedkit.delta"
+    namespace = "cc.eu.jeanwenzel.Noctreed"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.reedkit.delta"
+        applicationId = "cc.eu.jeanwenzel.Noctreed"
         minSdk = 31
         targetSdk = 34
         versionCode = 1
@@ -25,7 +25,7 @@ android {
                 keyAlias = System.getenv("REEDKIT_KEY_ALIAS")
                 keyPassword = System.getenv("REEDKIT_KEY_PASSWORD")
             } else {
-                logger.warn("Reedkit: release keystore not found at ${'$'}ksFile - release APK will be unsigned")
+                logger.warn("Noctreed: release keystore not found at ${'$'}ksFile - release APK will be unsigned")
             }
         }
     }
