@@ -44,21 +44,20 @@ class HarmonicaAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    /** 单击屏幕坐标 */
-    private suspend fun tap(x: Float, y: Float): Boolean = suspendCancellableCoroutine { cont ->
+    /** 按住屏幕坐标 durationMs 毫秒（短触即单击） */
+    private suspend fun tap(x: Float, y: Float, durationMs: Long = 60): Boolean = suspendCancellableCoroutine { cont ->
         val path = Path().apply { moveTo(x, y) }
         val gesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(path, 0, 60))
+            .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs))
             .build()
         dispatchGesture(gesture, object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) { cont.resume(true) }
             override fun onCancelled(gestureDescription: GestureDescription?) { cont.resume(false) }
         }, null)
     }
-
-    private suspend fun doTapKey(key: String): Boolean {
+    private suspend fun doTapKey(key: String, durationMs: Long = 60): Boolean {
         val pos = store.get(key) ?: return false
-        return tap(pos.first, pos.second)
+        return tap(pos.first, pos.second, durationMs)
     }
 
     /** 开始演奏 */
@@ -111,10 +110,12 @@ class HarmonicaAccessibilityService : AccessibilityService() {
                             halfStep = event.halfStep
                             delay(switchGap)
                         }
-                        // 音符键
+                        // 音符键：长按，按住时长约为音长的 90%（长音保持按下，短音近似点触）
                         val noteKey = if (event.degree == 8) "i" else event.degree.toString()
-                        doTapKey(noteKey)
-                        delayInterruptibly(beatMsNow() * event.beats)
+                        val noteMs = beatMsNow() * event.beats
+                        val holdMs = (noteMs * 9 / 10).coerceAtLeast(60L)
+                        doTapKey(noteKey, holdMs)
+                        delayInterruptibly(noteMs - holdMs)
                     }
                 }
             }

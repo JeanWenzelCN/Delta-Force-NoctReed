@@ -170,12 +170,19 @@ class OverlayService : Service() {
         root.addView(header)
 
         // 展开内容：主控制行（信息区 + BPM + 播放控制按钮）
+        // 横屏保持宽扁单行，避免遮挡演奏界面；竖屏改为上下两行，避免过宽显示不全
+        val isPortrait = resources.configuration.orientation ==
+            android.content.res.Configuration.ORIENTATION_PORTRAIT
         expandedContent = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+            orientation = if (isPortrait) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, 6.dpToPx(), 0, 0)
         }
-
+        // 按钮区在竖屏下单独占一行横向排布
+        val buttonRow = if (isPortrait) LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        } else expandedContent
         // 左侧信息列：曲名 + 乐句（演奏时可见）
         val infoColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -197,7 +204,6 @@ class OverlayService : Service() {
         infoColumn.addView(scoreNameView)
         infoColumn.addView(phraseView)
         expandedContent.addView(infoColumn)
-
         // BPM 实时调速：减号 / 数值 / 加号
         btnBpmDown = makeButton(R.drawable.ic_remove, "减速") {
             OverlayController.updateBpm(OverlayController.bpm.value - 5)
@@ -211,10 +217,9 @@ class OverlayService : Service() {
         btnBpmUp = makeButton(R.drawable.ic_add, "加速") {
             OverlayController.updateBpm(OverlayController.bpm.value + 5)
         }
-        expandedContent.addView(btnBpmDown)
-        expandedContent.addView(bpmView)
-        expandedContent.addView(btnBpmUp)
-
+        buttonRow.addView(btnBpmDown)
+        buttonRow.addView(bpmView)
+        buttonRow.addView(btnBpmUp)
         // 播放控制按钮：开始 / 暂停 / 停止 / 乐谱库 / 校准
         btnPlay = makeButton(R.drawable.ic_play, "开始演奏") { OverlayController.start(this) }
         btnPause = makeButton(R.drawable.ic_pause, "暂停 / 恢复") {
@@ -227,11 +232,12 @@ class OverlayService : Service() {
         btnStop = makeButton(R.drawable.ic_stop, "停止演奏") { OverlayController.stop() }
         btnLibrary = makeButton(R.drawable.ic_library, "切换乐谱") { showScorePicker() }
         btnCalibrate = makeButton(R.drawable.ic_tune, "校准按键") { startCalibration() }
-        expandedContent.addView(btnPlay)
-        expandedContent.addView(btnPause)
-        expandedContent.addView(btnStop)
-        expandedContent.addView(btnLibrary)
-        expandedContent.addView(btnCalibrate)
+        buttonRow.addView(btnPlay)
+        buttonRow.addView(btnPause)
+        buttonRow.addView(btnStop)
+        buttonRow.addView(btnLibrary)
+        buttonRow.addView(btnCalibrate)
+        if (isPortrait) expandedContent.addView(buttonRow)
         root.addView(expandedContent)
 
         // 拖动支持

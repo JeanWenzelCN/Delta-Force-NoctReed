@@ -265,17 +265,6 @@ fun MainScreen() {
                         else "我的乐谱（${savedScores.size}）")
                 }
 
-                // 仓库链接
-                OutlinedButton(
-                    onClick = {
-                        context.startActivity(Intent(Intent.ACTION_VIEW,
-                            Uri.parse("https://github.com/JeanWenzelCN/Delta-Force-NoctReed")))
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("GitHub 仓库")
-                }
-
                 // 演奏控制
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(
@@ -320,7 +309,27 @@ fun MainScreen() {
                 )
             }
         }
-
+        // —— 项目仓库（独立区块，置底） ——
+        Spacer(Modifier.height(16.dp))
+        ElevatedCard {
+            Column(Modifier.padding(16.dp)) {
+                Text("项目仓库", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "源代码、更新与问题反馈请访问 GitHub。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        context.startActivity(Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://github.com/JeanWenzelCN/Delta-Force-NoctReed")))
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("打开 GitHub 仓库") }
+            }
+        }
         Spacer(Modifier.height(24.dp))
     }
 

@@ -109,7 +109,3 @@ CI 构建见 GitHub Actions，签名密钥通过 Repository Secrets 注入。
 | 无障碍服务 | 模拟手势点击游戏按键 |
 | 悬浮窗 | 在游戏上层显示控制面板 |
 | 前台服务 | 保持悬浮窗服务存活 |
-
-## 仓库
-
-https://github.com/JeanWenzelCN/Delta-Force-NoctReed
