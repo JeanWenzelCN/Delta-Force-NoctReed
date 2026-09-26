@@ -14,8 +14,8 @@ object MidiImporter {
 
     data class Result(val jianpu: String, val bpm: Int, val noteCount: Int)
 
-    /** do=C4(60) 时可吹的自然音：低音 5 6 7、自然音 1-7、高音 1、高高音 1（i，C6） */
-    private val BASE = intArrayOf(55, 57, 59, 60, 62, 64, 65, 67, 69, 71, 72, 84)
+    /** do=C5(72) 时可吹的自然音：低音 5 6 7、中音 1-7、i（C6）、高音 1.-7.（含 i. = C7） */
+    private val BASE = intArrayOf(67, 69, 71, 72, 74, 76, 77, 79, 81, 83, 84, 86, 88, 89, 91, 93, 95, 96)
     private val BASE_SET = BASE.toSet()
     /** 可吹音集合 = 自然音 + 每个自然音的升半音 */
     private val PLAYABLE: Set<Int> = buildSet {
@@ -164,14 +164,16 @@ object MidiImporter {
         return Result(sb.toString().trim(), bpm, track.notes.size)
     }
 
-    /** do=C4(60)：55→.5 … 60→1 … 71→7，72→1.，84→i.；非自然音视为升半音（前置 #） */
+    /** do=C5(72)：67→.5 … 72→1 … 83→7，84→i（与 1. 等音，优先记作 i），85–95→高音区，96→i.；非自然音视为升半音（前置 #） */
     private fun toJianpuToken(pitch: Int): String {
         val isSharp = pitch !in BASE_SET
         val base = if (isSharp) pitch - 1 else pitch
         val degree = when (base) {
-            55 -> ".5"; 57 -> ".6"; 59 -> ".7"
-            60 -> "1"; 62 -> "2"; 64 -> "3"; 65 -> "4"
-            67 -> "5"; 69 -> "6"; 71 -> "7"; 72 -> "1."; 84 -> "i."
+            67 -> ".5"; 69 -> ".6"; 71 -> ".7"
+            72 -> "1"; 74 -> "2"; 76 -> "3"; 77 -> "4"
+            79 -> "5"; 81 -> "6"; 83 -> "7"; 84 -> "i"
+            86 -> "2."; 88 -> "3."; 89 -> "4."
+            91 -> "5."; 93 -> "6."; 95 -> "7."; 96 -> "i."
             else -> throw MidiException("内部错误：无法映射的 MIDI 音高 $pitch")
         }
         return if (isSharp) "#$degree" else degree

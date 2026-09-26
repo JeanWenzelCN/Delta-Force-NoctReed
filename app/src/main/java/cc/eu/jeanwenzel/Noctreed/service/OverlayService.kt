@@ -356,7 +356,7 @@ class OverlayService : Service() {
         val phrase = OverlayController.phrase.value
         if ((playing || paused) && name.isNotEmpty()) {
             scoreNameView.visibility = View.VISIBLE
-            scoreNameView.text = "♪ $name"
+            scoreNameView.text = name
         } else {
             scoreNameView.visibility = View.GONE
         }
