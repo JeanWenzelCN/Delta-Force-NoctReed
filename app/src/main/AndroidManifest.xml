@@ -32,9 +32,10 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
-        <service
+<service
             android:name=".service.OverlayService"
             android:exported="false"
-            android:foregroundServiceType="specialUse" />
+            android:foregroundServiceType="specialUse"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
     </application>
 </manifest>

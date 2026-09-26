@@ -58,6 +58,8 @@ class OverlayService : Service() {
     private lateinit var btnBpmUp: ImageButton
     private lateinit var bpmView: TextView
     private lateinit var expandedContent: LinearLayout
+    private var isPortrait = true
+    private var header: LinearLayout? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -72,7 +74,19 @@ class OverlayService : Service() {
         serviceScope.launch { OverlayController.playState.collect { refreshPanel() } }
         serviceScope.launch { OverlayController.scoreName.collect { refreshPanel() } }
         serviceScope.launch { OverlayController.phrase.collect { refreshPanel() } }
-        serviceScope.launch { OverlayController.bpm.collect { refreshPanel() } }
+            serviceScope.launch { OverlayController.bpm.collect { refreshPanel() } }
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val nowPortrait = newConfig.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
+        if (nowPortrait != isPortrait) {
+            isPortrait = nowPortrait
+            // 旋转时彻底重建悬浮窗，确保横竖屏布局真正分开
+            panel?.let { wm.removeView(it) }
+            panel = null
+            showPanel()
+        }
     }
 
     private fun buildNotification(): Notification {
@@ -178,7 +192,7 @@ class OverlayService : Service() {
         // 展开内容：横屏与竖屏分别设计
         // 横屏：所有信息单行显示（约 1/4 屏高，高度不随乐句变化）
         // 竖屏：信息 → BPM 行 → 控制行三行堆叠，宽度远小于屏宽不溢出
-        val isPortrait = resources.configuration.orientation ==
+        isPortrait = resources.configuration.orientation ==
             android.content.res.Configuration.ORIENTATION_PORTRAIT
         expandedContent = LinearLayout(this).apply {
             orientation = if (isPortrait) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
@@ -332,10 +346,14 @@ class OverlayService : Service() {
                 btnCalibrate.clearColorFilter()
             }
             else -> {
-                status.text = when (OverlayController.playState.value) {
-                    PlayState.PLAYING -> "演奏中…"
-                    PlayState.PAUSED -> "已暂停"
-                    PlayState.IDLE -> if (store.allCalibrated()) "就绪 — 可开始演奏" else "未校准，请先校准按键"
+                val accOn = HarmonicaAccessibilityService.isEnabled()
+                status.text = when {
+                    !accOn -> "未授权无障碍权限，无法开始演奏"
+                    else -> when (OverlayController.playState.value) {
+                        PlayState.PLAYING -> "演奏中…"
+                        PlayState.PAUSED -> "已暂停"
+                        PlayState.IDLE -> if (store.allCalibrated()) "就绪 — 可开始演奏" else "未校准，请先校准按键"
+                    }
                 }
                 btnCalibrate.clearColorFilter()
             }
@@ -344,7 +362,7 @@ class OverlayService : Service() {
         val st = OverlayController.playState.value
         val playing = st == PlayState.PLAYING
         val paused = st == PlayState.PAUSED
-        btnPlay.isEnabled = !playing && !paused
+        btnPlay.isEnabled = HarmonicaAccessibilityService.isEnabled() && !playing && !paused
         btnPlay.alpha = if (btnPlay.isEnabled) 1f else 0.4f
         btnPause.isEnabled = playing || paused
         btnPause.alpha = if (btnPause.isEnabled) 1f else 0.4f
