@@ -60,6 +60,7 @@ class OverlayService : Service() {
     private lateinit var expandedContent: LinearLayout
     private var isPortrait = true
     private var header: LinearLayout? = null
+    private var pendingCalibrate = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -75,6 +76,14 @@ class OverlayService : Service() {
         serviceScope.launch { OverlayController.scoreName.collect { refreshPanel() } }
         serviceScope.launch { OverlayController.phrase.collect { refreshPanel() } }
             serviceScope.launch { OverlayController.bpm.collect { refreshPanel() } }
+        // 兜底：悬浮窗创建后用户可能才去开无障碍，轮询刷新门控直到拿到为止
+        serviceScope.launch {
+            while (!HarmonicaAccessibilityService.isEnabled()) {
+                kotlinx.coroutines.delay(1500)
+                refreshPanel()
+            }
+            refreshPanel() // 刚拿到权限时立即刷新一次
+        }
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
@@ -82,6 +91,8 @@ class OverlayService : Service() {
         val nowPortrait = newConfig.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
         if (nowPortrait != isPortrait) {
             isPortrait = nowPortrait
+            // 旋转时停止演奏，避免横竖屏切换后状态错乱
+            if (OverlayController.playState.value != PlayState.IDLE) OverlayController.stop()
             // 旋转时彻底重建悬浮窗，确保横竖屏布局真正分开
             panel?.let { wm.removeView(it) }
             panel = null
@@ -176,6 +187,8 @@ class OverlayService : Service() {
         }
         btnMinimize = makeButton(R.drawable.ic_minimize, "最小化") { toggleCollapse() }
         btnClose = makeButton(R.drawable.ic_close, "关闭悬浮窗") {
+            // 退出悬浮窗前先停止演奏，避免后台继续跑
+            if (OverlayController.playState.value != PlayState.IDLE) OverlayController.stop()
             OverlayService.stop(this)
         }
         btnClose.background = GradientDrawable().apply {
@@ -256,7 +269,24 @@ class OverlayService : Service() {
         }
         btnStop = makeButton(R.drawable.ic_stop, "停止演奏") { OverlayController.stop() }
         btnLibrary = makeButton(R.drawable.ic_library, "切换乐谱") { showScorePicker() }
-        btnCalibrate = makeButton(R.drawable.ic_tune, "校准按键") { startCalibration() }
+        btnCalibrate = makeButton(R.drawable.ic_tune, "校准按键") {
+            if (calibrating) {
+                // 校准中再点一次 = 取消校准
+                calibrating = false
+                pendingCalibrate = false
+                refreshPanel()
+                return@makeButton
+            }
+            if (!pendingCalibrate) {
+                // 第一步：进入待确认状态，防误触
+                pendingCalibrate = true
+                refreshPanel()
+                return@makeButton
+            }
+            // 第二步：确认，开始校准
+            pendingCalibrate = false
+            startCalibration()
+        }
         ctrlRow.addView(btnPlay)
         ctrlRow.addView(btnPause)
         ctrlRow.addView(btnStop)
@@ -345,10 +375,15 @@ class OverlayService : Service() {
                 status.text = "校准完成，共 ${Keys.ALL.size} 个键位"
                 btnCalibrate.clearColorFilter()
             }
+            pendingCalibrate -> {
+                status.text = "再点一次开始校准"
+                btnCalibrate.setColorFilter(ACCENT)
+            }
             else -> {
                 val accOn = HarmonicaAccessibilityService.isEnabled()
                 status.text = when {
                     !accOn -> "未授权无障碍权限，无法开始演奏"
+                    isPortrait -> "竖屏不可演奏，请切换到横屏"
                     else -> when (OverlayController.playState.value) {
                         PlayState.PLAYING -> "演奏中…"
                         PlayState.PAUSED -> "已暂停"
@@ -362,7 +397,7 @@ class OverlayService : Service() {
         val st = OverlayController.playState.value
         val playing = st == PlayState.PLAYING
         val paused = st == PlayState.PAUSED
-        btnPlay.isEnabled = HarmonicaAccessibilityService.isEnabled() && !playing && !paused
+        btnPlay.isEnabled = HarmonicaAccessibilityService.isEnabled() && !isPortrait && !playing && !paused
         btnPlay.alpha = if (btnPlay.isEnabled) 1f else 0.4f
         btnPause.isEnabled = playing || paused
         btnPause.alpha = if (btnPause.isEnabled) 1f else 0.4f
