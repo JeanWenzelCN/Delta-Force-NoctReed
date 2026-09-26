@@ -175,15 +175,16 @@ class OverlayService : Service() {
         header.addView(btnClose)
         root.addView(header)
 
-        // 展开内容：无论横竖屏都拆为多行，保证高度压扁（横屏不遮挡演奏界面）且不横向溢出
+        // 展开内容：横屏与竖屏分别设计
+        // 横屏：所有信息单行显示（约 1/4 屏高，高度不随乐句变化）
+        // 竖屏：信息 → BPM 行 → 控制行三行堆叠，宽度远小于屏宽不溢出
         val isPortrait = resources.configuration.orientation ==
             android.content.res.Configuration.ORIENTATION_PORTRAIT
         expandedContent = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+            orientation = if (isPortrait) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, 6.dpToPx(), 0, 0)
         }
-        // 按钮区始终拆两行：BPM 调速一行、播放控制一行；横屏时信息列与按钮行并排以降低总高
         val bpmRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -192,12 +193,7 @@ class OverlayService : Service() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        // 横屏：信息列 | (bpmRow / ctrlRow) 两排并排，总高仅约两行按钮 ≈ 屏幕高度 2/7
-        // 竖屏：信息列 → bpmRow → ctrlRow 三行堆叠，宽度远小于屏宽不溢出
-        val rowsColumn = if (isPortrait) expandedContent else LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
+
         // 左侧信息列：曲名 + 乐句（演奏时可见）
         val infoColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -256,16 +252,10 @@ class OverlayService : Service() {
             expandedContent.addView(bpmRow)
             expandedContent.addView(ctrlRow)
         } else {
-            // 横屏：信息列与两行按钮并排，高度压到最低
-            val landscapeRow = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-            }
-            landscapeRow.addView(infoColumn)
-            rowsColumn.addView(bpmRow)
-            rowsColumn.addView(ctrlRow)
-            landscapeRow.addView(rowsColumn)
-            expandedContent.addView(landscapeRow)
+            // 横屏：所有信息单行平铺，高度固定 ≈ 1/4 屏高
+            expandedContent.addView(infoColumn)
+            expandedContent.addView(bpmRow)
+            expandedContent.addView(ctrlRow)
         }
         root.addView(expandedContent)
 

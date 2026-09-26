@@ -292,6 +292,14 @@ fun MainScreen() {
                 }
 
                 // 演奏控制
+                if (!accessibilityOn) {
+                    Text(
+                        "⚠️ 未授权无障碍权限，无法开始演奏",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(
                         enabled = accessibilityOn && calibrated && scoreText.isNotBlank() && !playing,
@@ -329,7 +337,7 @@ fun MainScreen() {
                 Spacer(Modifier.width(12.dp))
                 Text(
                     "流程：开启无障碍 → 授权悬浮窗 → 进入游戏守夜人口琴界面 → 在悬浮窗上完成校准 → 用悬浮窗控制演奏。\n\n" +
-                        "MIDI 导入要求：单旋律、无和弦、音域在低音 5 ～ 高高音 1（i.，C6）之间。",
+                        "MIDI 导入要求：单旋律、无和弦，音域须在 G3 — ♯C6（低音 5 ～ ♯高高音 1）之间。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
